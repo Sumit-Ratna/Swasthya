@@ -98,8 +98,6 @@ exports.getPatientHistory = async (req, res) => {
 };
 
 const pdfService = require('../services/pdfService');
-const path = require('path');
-const fs = require('fs');
 
 // Prescribe Medicine
 exports.prescribeMedicine = async (req, res) => {
@@ -122,14 +120,9 @@ exports.prescribeMedicine = async (req, res) => {
         const doctor = await firestoreService.getUser(doctorId);
         if (!doctor) return res.status(404).json({ error: "Doctor profile not found" });
 
-        // Generate unique filename for PDF
-        const fileName = `Prescription-${Date.now()}-${patient_id.substring(0, 6)}.pdf`;
-        const uploadDir = path.join(__dirname, '../../uploads');
-        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-        const filePath = path.join(uploadDir, fileName);
-
         // Prepare data for PDF
         const pdfData = {
+            patientId: patient_id,
             hospitalName: doctor.hospital_name || 'HealthNexus Clinic',
             doctorName: doctor.name || 'Doctor',
             doctorSpecialization: doctor.specialization || 'General Physician',
@@ -144,8 +137,8 @@ exports.prescribeMedicine = async (req, res) => {
             notes: instructions || ''
         };
 
-        // Generate PDF
-        await pdfService.generatePrescriptionPDF(pdfData, filePath);
+        // Generate PDF and upload directly to Firebase Storage
+        const fileUrl = await pdfService.generatePrescriptionPDF(pdfData);
 
         const prescriptionData = {
             medicines: medicines || [],
@@ -162,7 +155,7 @@ exports.prescribeMedicine = async (req, res) => {
             summary: `Prescription by Dr. ${doctor.name || 'Doctor'}`,
             is_shared: true,
             shared_with: [doctorId],
-            file_url: 'uploads/' + fileName // Attach generated PDF
+            file_url: fileUrl
         });
 
         res.json({

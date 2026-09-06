@@ -32,7 +32,6 @@ app.use(cors({
 }));
 
 app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -49,14 +48,18 @@ app.get('/', (req, res) => {
 });
 
 // Start Server with Firestore Check
-if (db) {
-    console.log('[SUCCESS] Firestore initialized successfully');
-} else {
-    console.warn('[WARNING] Firestore not initialized. Add service-account.json to enable database.');
+if (require.main === module) {
+    if (db) {
+        console.log('[SUCCESS] Firestore initialized successfully');
+    } else {
+        console.warn('[WARNING] Firestore not initialized. Add service-account.json to enable database.');
+    }
+
+    app.listen(PORT, () => {
+        console.log(`[SERVER] Running on port ${PORT}`);
+        console.log(`[DATABASE] Firebase Firestore`);
+        console.log(`[CORS] Allowed origins: ${allowedOrigins.join(', ')}`);
+    });
 }
 
-app.listen(PORT, () => {
-    console.log(`[SERVER] Running on port ${PORT}`);
-    console.log(`[DATABASE] Firebase Firestore`);
-    console.log(`[CORS] Allowed origins: ${allowedOrigins.join(', ')}`);
-});
+module.exports = app;

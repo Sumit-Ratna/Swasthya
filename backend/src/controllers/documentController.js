@@ -1,7 +1,6 @@
 const firestoreService = require('../services/firestoreService');
 const aiService = require('../services/aiService');
-const fs = require('fs');
-const path = require('path');
+const storageService = require('../services/storageService');
 const { v4: uuidv4 } = require('uuid');
 
 exports.uploadReport = async (req, res) => {
@@ -13,21 +12,14 @@ exports.uploadReport = async (req, res) => {
         const { patient_id, analyze } = req.body;
         const shouldAnalyze = analyze === 'true' || analyze === true;
 
-        console.log(`[STORAGE] Saving document for patient: ${patient_id}${shouldAnalyze ? ' with AI analysis' : ''}`);
+        console.log(`[STORAGE] Uploading document to Storage for patient: ${patient_id}${shouldAnalyze ? ' with AI analysis' : ''}`);
 
-        // Ensure uploads directory exists
-        const uploadDir = path.join(__dirname, '../../uploads');
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-        }
-
-        // Generate a unique filename
+        // Generate unique storage path and upload buffer
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const fileName = uniqueSuffix + '-' + req.file.originalname;
-        const filePath = path.join(uploadDir, fileName);
+        const cleanName = (req.file.originalname || 'document').replace(/[^a-zA-Z0-9.-]/g, '_');
+        const storagePath = `documents/${patient_id}/${uniqueSuffix}-${cleanName}`;
 
-        // Save the file to disk
-        fs.writeFileSync(filePath, req.file.buffer);
+        const fileUrl = await storageService.uploadBuffer(req.file.buffer, storagePath, req.file.mimetype);
 
         let initialData = {};
         let sharedWith = [];
@@ -60,7 +52,7 @@ exports.uploadReport = async (req, res) => {
         const newDoc = await firestoreService.createDocument({
             patient_id,
             type: 'lab_report',
-            file_url: 'uploads/' + fileName,
+            file_url: fileUrl,
             extracted_data: initialData,
             summary: "Uploaded Report",
             is_shared: isShared,
@@ -197,10 +189,8 @@ exports.deleteDocument = async (req, res) => {
             // Case: Doctor created this report -> Delete permanently for everyone
             if (isDoctorCreated) {
                 console.log(`[DELETE] Doctor ${userId} deleting OWN record ${id}. Permanent delete.`);
-                // Delete file if exists
                 if (document.file_url) {
-                    const filePath = path.join(__dirname, '../../', document.file_url);
-                    try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (e) { }
+                    await storageService.deleteFile(document.file_url);
                 }
                 await firestoreService.deleteDocument(id);
                 return res.json({ message: "Record deleted permanently from all systems." });
@@ -244,8 +234,7 @@ exports.deleteDocument = async (req, res) => {
             // Case: Patient deleting their OWN upload -> Permanent delete
             console.log(`[DELETE] Patient ${userId} deleting their OWN upload ${id}. Permanent delete.`);
             if (document.file_url) {
-                const filePath = path.join(__dirname, '../../', document.file_url);
-                try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (e) { }
+                await storageService.deleteFile(document.file_url);
             }
             await firestoreService.deleteDocument(id);
             return res.json({ message: "Record deleted permanently." });
@@ -280,18 +269,28 @@ exports.analyzeDocument = async (req, res) => {
             return res.status(400).json({ error: "No file attached to this document" });
         }
 
-        const filePath = path.join(__dirname, '../../', document.file_url);
-        if (!fs.existsSync(filePath)) {
-            return res.status(404).json({ error: "File not found on server" });
-        }
-
         console.log(`[AI] Analyzing existing document ${id} for user ${userId}`);
 
-        const fileBuffer = fs.readFileSync(filePath);
-        const ext = path.extname(filePath).toLowerCase();
+        let fileBuffer;
         let mimeType = 'image/jpeg';
-        if (ext === '.png') mimeType = 'image/png';
-        if (ext === '.pdf') mimeType = 'application/pdf';
+
+        if (document.file_url.startsWith('data:')) {
+            const matches = document.file_url.match(/^data:([^;]+);base64,(.+)$/);
+            if (matches) {
+                mimeType = matches[1];
+                fileBuffer = Buffer.from(matches[2], 'base64');
+            } else {
+                fileBuffer = Buffer.from(document.file_url.split(',')[1] || '', 'base64');
+            }
+        } else {
+            const fetchRes = await fetch(document.file_url);
+            if (!fetchRes.ok) {
+                return res.status(404).json({ error: "Unable to retrieve file from storage" });
+            }
+            const arrayBuffer = await fetchRes.arrayBuffer();
+            fileBuffer = Buffer.from(arrayBuffer);
+            mimeType = fetchRes.headers.get('content-type') || 'application/pdf';
+        }
 
         const aiResponse = await aiService.analyzeLabReport(fileBuffer, mimeType);
 

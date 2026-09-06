@@ -1,27 +1,36 @@
 const PDFDocument = require('pdfkit');
-const fs = require('fs');
-const path = require('path');
 const QRCode = require('qrcode');
+const storageService = require('./storageService');
 
-const ensureDirectoryExists = (dirPath) => {
-    if (!fs.existsSync(dirPath)) {
-        fs.mkdirSync(dirPath, { recursive: true });
-    }
-};
-
-exports.generatePrescriptionPDF = async (data, outputPath) => {
+/**
+ * Generates a prescription PDF in memory and uploads directly to Firebase Storage.
+ *
+ * @param {Object} data - Prescription details
+ * @returns {Promise<string>} The durable Firebase Storage URL of the generated PDF
+ */
+exports.generatePrescriptionPDF = async (data) => {
     return new Promise(async (resolve, reject) => {
         try {
-            // Ensure directory exists
-            ensureDirectoryExists(path.dirname(outputPath));
-
             const doc = new PDFDocument({ size: 'A4', margin: 40 });
-            const stream = fs.createWriteStream(outputPath);
-            doc.pipe(stream);
+            const chunks = [];
+
+            doc.on('data', chunk => chunks.push(chunk));
+            doc.on('error', reject);
+            doc.on('end', async () => {
+                try {
+                    const pdfBuffer = Buffer.concat(chunks);
+                    const patientSlug = (data.patientId || 'patient').substring(0, 8);
+                    const storagePath = `prescriptions/Prescription-${Date.now()}-${patientSlug}.pdf`;
+                    const fileUrl = await storageService.uploadBuffer(pdfBuffer, storagePath, 'application/pdf');
+                    resolve(fileUrl);
+                } catch (uploadErr) {
+                    reject(uploadErr);
+                }
+            });
 
             // --- HEADER ---
             doc.fontSize(20).font('Helvetica-Bold').text(data.hospitalName || 'HealthNexus Clinic', { align: 'center' });
-            doc.fontSize(10).font('Helvetica').text(data.doctorName, { align: 'center' });
+            doc.fontSize(10).font('Helvetica').text(data.doctorName || 'Doctor', { align: 'center' });
             doc.text(data.doctorSpecialization || 'General Physician', { align: 'center' });
             doc.moveDown();
             doc.strokeColor('#000000').lineWidth(2).moveTo(40, doc.y).lineTo(550, doc.y).stroke();
@@ -38,7 +47,7 @@ exports.generatePrescriptionPDF = async (data, outputPath) => {
 
             // Row 1
             doc.text('Name:', col1, startY);
-            doc.font('Helvetica').text(data.patientName, col2, startY);
+            doc.font('Helvetica').text(data.patientName || 'Patient', col2, startY);
             doc.font('Helvetica-Bold').text('Date:', col3, startY);
             doc.font('Helvetica').text(new Date().toLocaleDateString(), col4, startY);
 
@@ -48,13 +57,13 @@ exports.generatePrescriptionPDF = async (data, outputPath) => {
             doc.font('Helvetica-Bold').text('Age/Gender:', col1, row2Y);
             doc.font('Helvetica').text(`${data.patientAge || 'N/A'} / ${data.patientGender || 'N/A'}`, col2, row2Y);
             doc.font('Helvetica-Bold').text('CR No:', col3, row2Y);
-            doc.font('Helvetica').text(data.crNo || 'N/A', col4, row2Y); // Visit ID or similar
+            doc.font('Helvetica').text(data.crNo || data.visitId || 'N/A', col4, row2Y);
 
             // Row 3
             doc.moveDown(0.5);
             const row3Y = doc.y;
             doc.font('Helvetica-Bold').text('Mobile No:', col1, row3Y);
-            doc.font('Helvetica').text(data.patientPhone, col2, row3Y);
+            doc.font('Helvetica').text(data.patientPhone || 'N/A', col2, row3Y);
             doc.font('Helvetica-Bold').text('Department:', col3, row3Y);
             doc.font('Helvetica').text('General - GDMO', col4, row3Y);
 
@@ -82,15 +91,11 @@ exports.generatePrescriptionPDF = async (data, outputPath) => {
 
                 let index = 1;
                 data.medicines.forEach(med => {
-                    // text like: 1. PARACETAMOL 650 MG ORAL TABLET, Single Tab, BD, 3 Days
-                    // If med is string (legacy), print it. Ideally object.
-
                     let medText = '';
                     if (typeof med === 'string') {
                         medText = med;
                     } else {
-                        // Constructed text
-                        medText = `${med.name.toUpperCase()} ${med.dosage || ''}`;
+                        medText = `${med.name?.toUpperCase() || ''} ${med.dosage || ''}`;
                         if (med.frequency) medText += `, ${med.frequency}`;
                         if (med.duration) medText += `, ${med.duration}`;
                     }
@@ -110,28 +115,24 @@ exports.generatePrescriptionPDF = async (data, outputPath) => {
             }
 
             // --- FOOTER & QR ---
-            const footerY = 700; // Fixed absolute position for bottom
+            const footerY = 700;
 
             // Signature
             doc.fontSize(10).font('Helvetica-Bold').text('Signature of Consultant / Resident :', 50, footerY);
-            doc.font('Helvetica').text(`DR. ${data.doctorName.toUpperCase()}`, 50, footerY + 15);
+            doc.font('Helvetica').text(`DR. ${(data.doctorName || 'Doctor').toUpperCase()}`, 50, footerY + 15);
             doc.text(new Date().toLocaleString(), 50, footerY + 30);
 
             // QR Code
             try {
-                // QR contains simple verify link or ID
-                const qrData = `VERIFY:${data.visitId}`;
+                const qrData = `VERIFY:${data.visitId || Date.now()}`;
                 const qrDataUrl = await QRCode.toDataURL(qrData);
                 const qrBuffer = Buffer.from(qrDataUrl.split(',')[1], 'base64');
                 doc.image(qrBuffer, 450, 680, { width: 80 });
             } catch (err) {
-                console.error("QR Gen Error", err);
+                console.error("[PDF] QR Gen Error:", err.message);
             }
 
             doc.end();
-
-            stream.on('finish', () => resolve(outputPath));
-            stream.on('error', reject);
 
         } catch (err) {
             reject(err);

@@ -26,8 +26,10 @@ try {
     }
 
     if (serviceAccount && !admin.apps.length) {
+        const storageBucket = process.env.FIREBASE_STORAGE_BUCKET || (serviceAccount.project_id ? `${serviceAccount.project_id}.firebasestorage.app` : undefined);
         admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount)
+            credential: admin.credential.cert(serviceAccount),
+            storageBucket
         });
         console.log("[FIREBASE] Admin SDK initialized successfully");
     } else if (!serviceAccount) {
@@ -38,5 +40,15 @@ try {
 }
 
 const db = admin.apps.length ? admin.firestore() : null;
+let bucket = null;
+if (admin.apps.length) {
+    try {
+        bucket = process.env.FIREBASE_STORAGE_BUCKET
+            ? admin.storage().bucket(process.env.FIREBASE_STORAGE_BUCKET)
+            : admin.storage().bucket();
+    } catch (err) {
+        console.warn("[WARNING] Could not initialize Firebase Storage bucket:", err.message);
+    }
+}
 
-module.exports = { admin, db };
+module.exports = { admin, db, bucket };

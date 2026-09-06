@@ -4,14 +4,13 @@ exports.bookOpd = async (req, res) => {
     try {
         const { symptoms, notes, doctor_id } = req.body;
 
-        // Get all OPD appointments to calculate queue number
+        // Count existing OPD appointments to derive next queue number.
+        // Using a simple where-only query avoids the need for a composite index.
         const snapshot = await firestoreService.db.collection('appointments')
             .where('type', '==', 'OPD')
-            .orderBy('createdAt', 'desc')
-            .limit(1)
             .get();
 
-        const queue_number = snapshot.empty ? 1 : (snapshot.docs[0].data().queue_number || 0) + 1;
+        const queue_number = snapshot.size + 1;
 
         const appointment = await firestoreService.createAppointment({
             patient_id: req.user.id,
@@ -23,6 +22,19 @@ exports.bookOpd = async (req, res) => {
             symptoms: symptoms || '',
             notes: notes || ''
         });
+
+        // Trigger in-app notification reminder
+        try {
+            await firestoreService.createNotification({
+                user_id: req.user.id,
+                title: 'OPD Queue Ticket Issued',
+                message: `Your OPD queue number #${queue_number} is confirmed. Estimated wait: ${queue_number * 5} mins.`,
+                type: 'opd',
+                link: '/status'
+            });
+        } catch (notifErr) {
+            console.warn('[NOTIFICATIONS] Could not create OPD notification:', notifErr.message);
+        }
 
         res.json({ message: "OPD Booking Confirmed", appointment });
     } catch (err) {
@@ -62,6 +74,26 @@ exports.bookScheduled = async (req, res) => {
             symptoms: symptoms || '',
             notes: notes || ''
         });
+
+        // Trigger in-app notification reminder for patient & doctor
+        try {
+            await firestoreService.createNotification({
+                user_id: req.user.id,
+                title: 'Appointment Scheduled',
+                message: `Your ${appointmentType} with Dr. ${doctor.name} is confirmed for ${appointment_date} at ${slotTime}.`,
+                type: 'appointment',
+                link: '/status'
+            });
+            await firestoreService.createNotification({
+                user_id: doctor_id,
+                title: 'New Scheduled Appointment',
+                message: `Patient ${req.user.name || 'Patient'} booked a ${appointmentType} on ${appointment_date} at ${slotTime}.`,
+                type: 'appointment',
+                link: '/doctor/dashboard'
+            });
+        } catch (notifErr) {
+            console.warn('[NOTIFICATIONS] Could not create scheduled notification:', notifErr.message);
+        }
 
         res.status(201).json({
             message: "Scheduled Appointment Confirmed",

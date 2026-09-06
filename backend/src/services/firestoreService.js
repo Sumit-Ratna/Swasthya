@@ -299,6 +299,97 @@ class FirestoreService {
         const doc = await this.db.collection('familyLinks').doc(linkId).get();
         return { id: doc.id, ...doc.data() };
     }
+
+    /**
+     * At signup, auto-activate any pending familyLinks where another user already
+     * initiated a link to this userId. This covers the case where someone added a
+     * family member by phone before that person had registered — the registration
+     * itself serves as consent/verification.
+     * @param {string} userId - The newly registered user's ID
+     * @returns {number} Number of links activated
+     */
+    async autoActivatePendingFamilyLinks(userId) {
+        if (!this.db) throw new Error('Firestore not initialized');
+
+        const snapshot = await this.db.collection('familyLinks')
+            .where('family_member_id', '==', userId)
+            .where('status', '==', 'pending')
+            .get();
+
+        if (snapshot.empty) return 0;
+
+        const batch = this.db.batch ? this.db.batch() : null;
+        for (const doc of snapshot.docs) {
+            const update = { status: 'active', verified_at: new Date().toISOString(), updatedAt: new Date() };
+            if (batch) {
+                batch.update(doc.ref, update);
+            } else {
+                await doc.ref.update(update);
+            }
+        }
+        if (batch) await batch.commit();
+
+        console.log(`[FAMILY] Auto-activated ${snapshot.size} pending link(s) for new user ${userId}`);
+        return snapshot.size;
+    }
+
+    // === NOTIFICATION OPERATIONS ===
+    async createNotification(notifData) {
+        if (!this.db) throw new Error('Firestore not initialized');
+        const notifRef = this.db.collection('notifications').doc();
+        const notification = {
+            ...notifData,
+            read: false,
+            createdAt: notifData.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+        await notifRef.set(notification);
+        return { id: notifRef.id, ...notification };
+    }
+
+    async getNotificationsByUser(userId) {
+        if (!this.db) throw new Error('Firestore not initialized');
+        const snapshot = await this.db.collection('notifications')
+            .where('user_id', '==', userId)
+            .get();
+
+        const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        results.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        return results;
+    }
+
+    async markNotificationAsRead(notifId, userId) {
+        if (!this.db) throw new Error('Firestore not initialized');
+        const notifRef = this.db.collection('notifications').doc(notifId);
+        const doc = await notifRef.get();
+        if (!doc.exists) return null;
+        if (userId && doc.data().user_id !== userId) return null;
+
+        await notifRef.update({
+            read: true,
+            updatedAt: new Date().toISOString()
+        });
+        return { id: doc.id, ...doc.data(), read: true };
+    }
+
+    async markAllNotificationsAsRead(userId) {
+        if (!this.db) throw new Error('Firestore not initialized');
+        const snapshot = await this.db.collection('notifications')
+            .where('user_id', '==', userId)
+            .where('read', '==', false)
+            .get();
+
+        const batch = this.db.batch ? this.db.batch() : null;
+        for (const doc of snapshot.docs) {
+            if (batch) {
+                batch.update(doc.ref, { read: true, updatedAt: new Date().toISOString() });
+            } else {
+                await doc.ref.update({ read: true, updatedAt: new Date().toISOString() });
+            }
+        }
+        if (batch) await batch.commit();
+        return { updated: snapshot.size };
+    }
 }
 
 module.exports = new FirestoreService();

@@ -153,6 +153,19 @@ exports.register = async (req, res) => {
 
         console.log(`[AUTH] Registered: ${userId} (${role})`);
 
+        // ---------------------------------------------------------------------------
+        // AUTO-LINK FAMILY: If the new user provided a phone, activate any pending
+        // familyLinks where someone already initiated a link targeting this user's ID.
+        // Skip silently on any error — this must never block registration.
+        // ---------------------------------------------------------------------------
+        if (phone) {
+            try {
+                await firestoreService.autoActivatePendingFamilyLinks(userId);
+            } catch (linkErr) {
+                console.warn('[AUTH] Auto-family-link failed (non-fatal):', linkErr.message);
+            }
+        }
+
         return res.status(201).json({
             message: 'Registration Successful',
             accessToken: tokens.accessToken,

@@ -280,6 +280,29 @@ jest.mock('../src/services/firestoreService', () => {
             const appt = { id, ...data, createdAt: new Date() };
             mockStore.appointments.set(id, appt);
             return { ...appt };
+        }),
+
+        // Notification methods
+        createNotification: jest.fn(async (data) => {
+            return { id: crypto.randomUUID(), ...data, read: false, createdAt: new Date().toISOString() };
+        }),
+
+        getNotificationsByUser: jest.fn(async (userId) => []),
+
+        markNotificationAsRead: jest.fn(async (id, userId) => ({ id, read: true })),
+
+        markAllNotificationsAsRead: jest.fn(async (userId) => ({ updated: 0 })),
+
+        // Family auto-link (activates pending links on signup)
+        autoActivatePendingFamilyLinks: jest.fn(async (userId) => {
+            let count = 0;
+            for (const [id, link] of mockStore.familyLinks.entries()) {
+                if (link.family_member_id === userId && link.status === 'pending') {
+                    mockStore.familyLinks.set(id, { ...link, status: 'active', verified_at: new Date().toISOString() });
+                    count++;
+                }
+            }
+            return count;
         })
     };
 });

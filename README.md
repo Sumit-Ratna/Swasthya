@@ -148,4 +148,6 @@ This project was developed and maintained with contributions from:
 - **Sumit Kumar Ratna**
 - **Aditya Singh**
 - **Anshika Thakur**
-- **Vishnukant Bajpai**
+- **Ankit Kumar**
+- **Saad Khan**
+- **Mohit Raj**

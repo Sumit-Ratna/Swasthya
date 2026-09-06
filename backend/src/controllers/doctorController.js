@@ -1,5 +1,6 @@
 const firestoreService = require('../services/firestoreService');
 const aiService = require('../services/aiService');
+const pdfService = require('../services/pdfService');
 
 // Get Doctor Dashboard Stats
 exports.getDashboard = async (req, res) => {
@@ -97,8 +98,6 @@ exports.getPatientHistory = async (req, res) => {
     }
 };
 
-const pdfService = require('../services/pdfService');
-
 // Prescribe Medicine
 exports.prescribeMedicine = async (req, res) => {
     try {
@@ -158,10 +157,22 @@ exports.prescribeMedicine = async (req, res) => {
             file_url: fileUrl
         });
 
+        // Trigger in-app notification reminder for patient
+        try {
+            await firestoreService.createNotification({
+                user_id: patient_id,
+                title: 'New Prescription Issued',
+                message: `Dr. ${doctor.name || 'Doctor'} has issued a prescription for you.`,
+                type: 'prescription',
+                link: '/records'
+            });
+        } catch (notifErr) {
+            console.warn('[NOTIFICATIONS] Could not create prescription notification:', notifErr.message);
+        }
+
         res.json({
             message: "Prescription created successfully",
             document: newDoc,
-            // Skip AI check result as we removed AI logic here for speed/simplicity or keep simple
             safetyChecks: []
         });
     } catch (err) {
@@ -191,13 +202,9 @@ exports.addDiagnosisNote = async (req, res) => {
         const doctor = await firestoreService.getUser(doctorId);
         if (!doctor) return res.status(404).json({ error: "Doctor profile not found" });
 
-        // Generate PDF
-        const fileName = `Diagnosis-${Date.now()}-${patient_id.substring(0, 6)}.pdf`;
-        const uploadDir = path.join(__dirname, '../../uploads');
-        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-        const filePath = path.join(uploadDir, fileName);
-
+        // Generate PDF directly via storageService
         const pdfData = {
+            patientId: patient_id,
             hospitalName: doctor.hospital_name || 'HealthNexus Clinic',
             doctorName: doctor.name || 'Doctor',
             doctorSpecialization: doctor.specialization || 'General Physician',
@@ -211,7 +218,7 @@ exports.addDiagnosisNote = async (req, res) => {
             notes: treatment_plan || ''
         };
 
-        await pdfService.generatePrescriptionPDF(pdfData, filePath);
+        const fileUrl = await pdfService.generatePrescriptionPDF(pdfData);
 
         const diagnosisData = {
             diagnosis: diagnosis || '',
@@ -228,7 +235,7 @@ exports.addDiagnosisNote = async (req, res) => {
             summary: `Diagnosis by Dr. ${doctor.name || 'Doctor'}`,
             is_shared: true,
             shared_with: [doctorId],
-            file_url: 'uploads/' + fileName
+            file_url: fileUrl
         });
 
         res.json({

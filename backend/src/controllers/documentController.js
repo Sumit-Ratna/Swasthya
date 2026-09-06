@@ -340,4 +340,21 @@ exports.analyzeDocument = async (req, res) => {
     }
 };
 
+exports.getRawFile = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const fileData = await storageService.getFile(id);
+        if (!fileData) {
+            return res.status(404).json({ error: "File not found" });
+        }
+        res.setHeader('Content-Type', fileData.mimetype || 'application/octet-stream');
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(req.params.filename || fileData.fileName || 'file')}"`);
+        res.send(fileData.buffer);
+    } catch (err) {
+        console.error("Get raw file error:", err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
 module.exports = exports;
+

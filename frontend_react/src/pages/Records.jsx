@@ -623,7 +623,12 @@ const Records = ({ viewingPatientId }) => {
                             }}>
                                 <div style={{ display: 'flex', gap: '8px' }}>
                                     <button
-                                        onClick={() => window.open(doc.file_url?.startsWith('http') ? doc.file_url : `${API_URL}/${doc.file_url?.replace(/^\//, '')}`, '_blank')}
+                                        onClick={() => {
+                                            const target = (doc.file_url?.startsWith('http') || doc.file_url?.startsWith('data:'))
+                                                ? doc.file_url
+                                                : `${API_URL}/${doc.file_url?.replace(/^\//, '')}`;
+                                            window.open(target, '_blank');
+                                        }}
                                         disabled={!doc.file_url}
                                         style={{
                                             padding: '6px 14px',

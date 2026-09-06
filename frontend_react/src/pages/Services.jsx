@@ -1,7 +1,7 @@
 import React, { useState, useContext } from 'react';
 import axios from 'axios';
 import { motion } from 'framer-motion';
-import { PlusCircle, Video, Activity, Scan, ShieldCheck, AlertCircle } from 'lucide-react';
+import { PlusCircle, Video, Activity, Scan, ShieldCheck, AlertCircle, Calendar } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { API_URL } from '../config';
@@ -161,10 +161,11 @@ const Services = () => {
                 <motion.div
                     className="card"
                     whileTap={{ scale: 0.95 }}
-                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '140px', background: '#FFF0F5' }}
+                    onClick={() => navigate('/appointments/book')}
+                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '140px', background: '#F3E8FF', cursor: 'pointer' }}
                 >
-                    <Video size={32} color="#FF2D55" style={{ marginBottom: '12px' }} />
-                    <span style={{ fontWeight: 600, color: '#FF2D55' }}>Video Consult</span>
+                    <Calendar size={32} color="#7C3AED" style={{ marginBottom: '12px' }} />
+                    <span style={{ fontWeight: 600, color: '#7C3AED' }}>Book Slot</span>
                 </motion.div>
 
                 <motion.div

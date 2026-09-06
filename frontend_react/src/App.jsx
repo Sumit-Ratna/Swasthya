@@ -18,6 +18,7 @@ import LearnMedicines from './pages/LearnMedicines';
 import ConsultationDetails from './pages/ConsultationDetails';
 import FamilyHealth from './pages/FamilyHealth';
 import FamilyMemberDetails from './pages/FamilyMemberDetails';
+import BookAppointment from './pages/BookAppointment';
 
 // Auth Pages
 import RoleSelection from './pages/RoleSelection';
@@ -85,6 +86,7 @@ const MainApp = () => {
               <Route path="/consultation/:date/:doctorId" element={<ConsultationDetails />} />
               <Route path="/family" element={<FamilyHealth />} />
               <Route path="/family/:memberId" element={<FamilyMemberDetails />} />
+              <Route path="/appointments/book" element={<BookAppointment />} />
             </>
           )}
 

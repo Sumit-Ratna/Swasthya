@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import axios from 'axios';
-import { MapPin, Phone, MessageSquare, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { MapPin, Phone, MessageSquare, ShieldCheck, AlertTriangle, Calendar } from 'lucide-react';
 import { API_URL } from '../config';
 
 const CareTeam = () => {
+    const navigate = useNavigate();
     const [doctors, setDoctors] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -166,6 +168,27 @@ const CareTeam = () => {
                                     <div style={{ fontSize: '14px', fontWeight: 500 }}>{doc.lifestyle?.license_number || 'N/A'}</div>
                                 </div>
                             </div>
+
+                            <button
+                                onClick={() => navigate(`/appointments/book?doctorId=${doc.id}`)}
+                                style={{
+                                    marginTop: '12px',
+                                    background: 'var(--primary-color)',
+                                    color: 'white',
+                                    border: 'none',
+                                    padding: '10px',
+                                    borderRadius: '8px',
+                                    fontWeight: 600,
+                                    fontSize: '13px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '6px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <Calendar size={15} /> Book Appointment
+                            </button>
                         </motion.div>
                     ))
                 )}

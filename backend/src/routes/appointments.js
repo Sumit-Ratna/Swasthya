@@ -4,6 +4,7 @@ const appointmentController = require('../controllers/appointmentController');
 const auth = require('../middleware/auth');
 
 router.post('/book/opd', auth, appointmentController.bookOpd);
+router.post('/book/scheduled', auth, appointmentController.bookScheduled);
 router.get('/my-list', auth, appointmentController.getMyAppointments);
 
 module.exports = router;

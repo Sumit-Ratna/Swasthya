@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { motion } from 'framer-motion';
-import { Calendar, Clock, MapPin, Ticket } from 'lucide-react';
+import { Calendar, Clock, MapPin, Ticket, Plus, User, Stethoscope } from 'lucide-react';
 import { API_URL } from '../config';
 
 const Status = () => {
     const [appointments, setAppointments] = useState([]);
+    const navigate = useNavigate();
 
     useEffect(() => {
         fetchAppointments();
@@ -24,18 +26,38 @@ const Status = () => {
     };
 
     return (
-        <div style={{ padding: '20px' }}>
-            <h1 className="animate-enter">Status Dashboard</h1>
+        <div style={{ padding: '20px', paddingBottom: '90px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h1 className="animate-enter" style={{ margin: 0 }}>Status Dashboard</h1>
+                <button
+                    onClick={() => navigate('/appointments/book')}
+                    style={{
+                        background: 'var(--primary-color)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '20px',
+                        padding: '6px 14px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        cursor: 'pointer'
+                    }}
+                >
+                    <Plus size={14} /> Book Slot
+                </button>
+            </div>
 
             {/* OPD Queue Slip */}
             <motion.div
                 className="card"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                style={{ borderLeft: '5px solid #007AFF', background: '#F2F2F7' }}
+                style={{ borderLeft: '5px solid #007AFF', background: '#F2F2F7', marginBottom: '24px' }}
             >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3>OPD Queue Slip</h3>
+                    <h3 style={{ margin: 0 }}>OPD Queue Slip</h3>
                     <Ticket color="#007AFF" />
                 </div>
                 <div style={{ margin: '16px 0', textAlign: 'center' }}>
@@ -50,25 +72,75 @@ const Status = () => {
             </motion.div>
 
             {/* Appointments List */}
-            <h3>Upcoming Appointments</h3>
-            {appointments.length === 0 ? <p style={{ color: '#8E8E93' }}>No booked appointments.</p> : (
+            <h3 style={{ marginBottom: '12px' }}>Upcoming Appointments</h3>
+            {appointments.length === 0 ? (
+                <div className="card" style={{ textAlign: 'center', padding: '32px', color: '#8E8E93' }}>
+                    <p style={{ margin: '0 0 12px' }}>No upcoming booked appointments.</p>
+                    <button
+                        onClick={() => navigate('/appointments/book')}
+                        style={{
+                            background: 'var(--primary-color)',
+                            color: 'white',
+                            border: 'none',
+                            padding: '8px 16px',
+                            borderRadius: '8px',
+                            fontSize: '13px',
+                            fontWeight: 600,
+                            cursor: 'pointer'
+                        }}
+                    >
+                        Book a Scheduled Appointment
+                    </button>
+                </div>
+            ) : (
                 appointments.map((apt, i) => (
                     <motion.div
-                        key={apt.id}
+                        key={apt.id || i}
                         className="card"
                         initial={{ opacity: 0, x: -10 }}
                         animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: i * 0.1 }}
+                        transition={{ delay: i * 0.08 }}
+                        style={{ marginBottom: '12px', padding: '16px' }}
                     >
-                        <h4 style={{ margin: '0 0 8px 0' }}>{apt.type} Visit</h4>
-                        <div style={{ display: 'flex', alignItems: 'center', fontSize: '12px', color: '#8E8E93', marginBottom: '4px' }}>
-                            <Calendar size={12} style={{ marginRight: '6px' }} />
-                            {new Date(apt.appointment_date).toLocaleDateString()}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                            <div>
+                                <h4 style={{ margin: '0 0 4px 0', fontSize: '15px', color: 'var(--text-primary)' }}>
+                                    {apt.doctor?.name ? `Dr. ${apt.doctor.name}` : (apt.type || 'Consultation')}
+                                </h4>
+                                {apt.doctor?.specialization && (
+                                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                        {apt.doctor.specialization}
+                                    </div>
+                                )}
+                            </div>
+                            <span style={{
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                backgroundColor: apt.type === 'OPD' ? 'rgba(0, 122, 255, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                                color: apt.type === 'OPD' ? '#007AFF' : '#059669'
+                            }}>
+                                {apt.type || 'Consultation'}
+                            </span>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', fontSize: '12px', color: '#8E8E93' }}>
-                            <Clock size={12} style={{ marginRight: '6px' }} />
-                            {apt.slot_time || '10:00 AM'}
+
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', fontSize: '12px', color: '#8E8E93', marginTop: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                <Calendar size={13} style={{ marginRight: '5px' }} />
+                                {apt.appointment_date ? new Date(apt.appointment_date).toLocaleDateString() : 'N/A'}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                <Clock size={13} style={{ marginRight: '5px' }} />
+                                {apt.appointment_time || apt.slot_time || '10:00 AM'}
+                            </div>
                         </div>
+
+                        {apt.symptoms && (
+                            <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-secondary)', background: 'var(--bg-color)', padding: '6px 10px', borderRadius: '6px' }}>
+                                <b>Reason:</b> {apt.symptoms}
+                            </div>
+                        )}
                     </motion.div>
                 ))
             )}

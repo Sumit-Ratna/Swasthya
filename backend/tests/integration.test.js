@@ -668,4 +668,93 @@ describe('HealthNexus API Integration Tests', () => {
             expect(docPatientsRes.body.some(p => p.id === patientUser.id)).toBe(true);
         });
     });
+
+    describe('6. Scheduled Appointments (POST /api/appointments/book/scheduled)', () => {
+        let doctorUser;
+        let doctorToken;
+        let patientUser;
+        let patientToken;
+
+        beforeEach(async () => {
+            const docRes = await request(app).post('/api/auth/register').send({
+                name: 'Dr. Jane Watson',
+                phone: '+15551239999',
+                password: 'DoctorPass123!',
+                confirmPassword: 'DoctorPass123!',
+                role: 'doctor',
+                specialization: 'Cardiology',
+                hospital_name: 'St. Jude Hospital'
+            });
+            doctorUser = docRes.body.user;
+            doctorToken = docRes.body.accessToken;
+
+            const patRes = await request(app).post('/api/auth/register').send({
+                name: 'Alice Wonder',
+                phone: '+15559871111',
+                password: 'PatientPass123!',
+                confirmPassword: 'PatientPass123!',
+                role: 'patient'
+            });
+            patientUser = patRes.body.user;
+            patientToken = patRes.body.accessToken;
+        });
+
+        it('should successfully book a scheduled appointment with doctor, date, time slot, and type', async () => {
+            const res = await request(app)
+                .post('/api/appointments/book/scheduled')
+                .set('Authorization', `Bearer ${patientToken}`)
+                .send({
+                    doctor_id: doctorUser.id,
+                    appointment_date: '2026-09-15',
+                    appointment_time: '10:30 AM',
+                    type: 'Follow-up',
+                    symptoms: 'Check blood pressure recovery'
+                });
+
+            expect(res.status).toBe(201);
+            expect(res.body.message).toMatch(/scheduled appointment confirmed/i);
+            expect(res.body.appointment).toBeDefined();
+            expect(res.body.appointment.patient_id).toBe(patientUser.id);
+            expect(res.body.appointment.doctor_id).toBe(doctorUser.id);
+            expect(res.body.appointment.type).toBe('Follow-up');
+            expect(res.body.appointment.appointment_time).toBe('10:30 AM');
+            expect(res.body.appointment.doctor.name).toBe('Dr. Jane Watson');
+            expect(res.body.appointment.doctor.specialization).toBe('Cardiology');
+
+            // Verify patient can retrieve it in /api/appointments/my-list
+            const listRes = await request(app)
+                .get('/api/appointments/my-list')
+                .set('Authorization', `Bearer ${patientToken}`);
+
+            expect(listRes.status).toBe(200);
+            expect(listRes.body.some(a => a.doctor_id === doctorUser.id && a.type === 'Follow-up')).toBe(true);
+        });
+
+        it('should reject scheduled booking when doctor_id is missing', async () => {
+            const res = await request(app)
+                .post('/api/appointments/book/scheduled')
+                .set('Authorization', `Bearer ${patientToken}`)
+                .send({
+                    appointment_date: '2026-09-15',
+                    appointment_time: '11:00 AM',
+                    type: 'Consultation'
+                });
+
+            expect(res.status).toBe(400);
+            expect(res.body.error).toMatch(/doctor_id is required/i);
+        });
+
+        it('should reject scheduled booking when appointment_date is missing', async () => {
+            const res = await request(app)
+                .post('/api/appointments/book/scheduled')
+                .set('Authorization', `Bearer ${patientToken}`)
+                .send({
+                    doctor_id: doctorUser.id,
+                    appointment_time: '11:00 AM'
+                });
+
+            expect(res.status).toBe(400);
+            expect(res.body.error).toMatch(/appointment_date is required/i);
+        });
+    });
 });

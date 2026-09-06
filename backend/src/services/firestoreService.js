@@ -51,6 +51,22 @@ class FirestoreService {
         return { id: doc.id, ...doc.data() };
     }
 
+    async getUserByIdentifier(identifier) {
+        if (!this.db || !identifier) return null;
+        const clean = String(identifier).trim();
+        if (clean.includes('@')) {
+            return this.getUserByEmail(clean.toLowerCase());
+        }
+        // Try by phone first
+        let user = await this.getUserByPhone(clean);
+        if (!user) {
+            // Also try email in case identifier did not contain @ or was case-insensitive
+            user = await this.getUserByEmail(clean.toLowerCase());
+        }
+        return user;
+    }
+
+
     async updateUser(userId, data) {
         if (!this.db) throw new Error('Firestore not initialized');
         await this.db.collection('users').doc(userId).update({

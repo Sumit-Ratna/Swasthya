@@ -6,16 +6,21 @@ const firestoreService = require('../services/firestoreService');
 // ---------------------------------------------------------------------------
 exports.initiateFamilyLink = async (req, res) => {
     try {
-        const { phone, relation } = req.body;
+        const { phone, email, identifier, relation } = req.body;
+        const targetIdentifier = (identifier || email || phone || '').trim();
         const userId = req.user.id;
 
-        console.log(`[FAMILY] Init Link: User ${userId} -> Phone ${phone}`);
+        console.log(`[FAMILY] Init Link: User ${userId} -> Identifier ${targetIdentifier}`);
 
-        // Find target user by phone
-        const member = await firestoreService.getUserByPhone(phone);
+        if (!targetIdentifier) {
+            return res.status(400).json({ error: 'Phone number or email is required.' });
+        }
+
+        // Find target user by phone or email
+        const member = await firestoreService.getUserByIdentifier(targetIdentifier);
         if (!member) {
-            console.log('[ERROR] Target user not found for phone:', phone);
-            return res.status(404).json({ error: 'User not found.' });
+            console.log('[ERROR] Target user not found for identifier:', targetIdentifier);
+            return res.status(404).json({ error: 'User not found. Make sure they are registered on HealthNexus.' });
         }
         console.log(`[SUCCESS] Found Target Member: ${member.id} (${member.name})`);
 
@@ -41,7 +46,8 @@ exports.initiateFamilyLink = async (req, res) => {
                 console.log('[SYNC] Updated existing pending link timestamp');
                 return res.json({
                     message: 'Link request sent (updated timestamp).',
-                    link: existingLink
+                    link: existingLink,
+                    member_name: member.name
                 });
             }
         }
@@ -55,6 +61,20 @@ exports.initiateFamilyLink = async (req, res) => {
         });
 
         console.log(`[SUCCESS] Created Pending Link: ID ${newLink.id}`);
+
+        // Send in-app notification to member if available
+        try {
+            const initiator = await firestoreService.getUser(userId);
+            await firestoreService.createNotification({
+                user_id: member.id,
+                title: 'Family Link Request',
+                body: `${initiator?.name || 'A family member'} added you as a family member.`,
+                type: 'family_request'
+            });
+        } catch (notifErr) {
+            console.warn('[FAMILY] Notification error (non-fatal):', notifErr.message);
+        }
+
         res.json({
             message: 'Family link request sent. Ask the member to verify using their password.',
             link_id: newLink.id,
@@ -70,22 +90,23 @@ exports.initiateFamilyLink = async (req, res) => {
 // POST /api/family/verify — Step 2: Confirm family link
 //
 // The INITIATOR calls this endpoint after the family member shares their
-// password. Accepts { phone, password } where phone+password belongs to the
-// family member (the person being added), not the initiator.
+// password. Accepts { identifier, phone, password } where identifier/phone +
+// password belongs to the family member (the person being added), not the initiator.
 // ---------------------------------------------------------------------------
 exports.verifyFamilyLink = async (req, res) => {
     try {
-        const { phone, password } = req.body;
+        const { phone, email, identifier, password } = req.body;
+        const targetIdentifier = (identifier || email || phone || '').trim();
         const userId = req.user.id; // the initiator
 
-        console.log(`[FAMILY] Verify Link: Initiator ${userId}, MemberPhone ${phone}`);
+        console.log(`[FAMILY] Verify Link: Initiator ${userId}, MemberIdentifier ${targetIdentifier}`);
 
-        if (!phone || !password) {
-            return res.status(400).json({ error: 'phone and password are required.' });
+        if (!targetIdentifier || !password) {
+            return res.status(400).json({ error: 'Phone/email and password are required.' });
         }
 
-        // Find member by phone
-        const member = await firestoreService.getUserByPhone(phone);
+        // Find member by phone or email
+        const member = await firestoreService.getUserByIdentifier(targetIdentifier);
         if (!member) {
             return res.status(404).json({ error: 'User not found.' });
         }
@@ -106,7 +127,7 @@ exports.verifyFamilyLink = async (req, res) => {
         const pendingLink = await firestoreService.getFamilyLink(userId, member.id);
 
         if (!pendingLink) {
-            console.log(`[ERROR] No pending link found from phone ${phone} (${member.id}) to user ${userId}`);
+            console.log(`[ERROR] No pending link found from identifier ${targetIdentifier} (${member.id}) to user ${userId}`);
             return res.status(404).json({ error: 'No pending link found. Did you initiate the link first?' });
         }
 
@@ -124,12 +145,25 @@ exports.verifyFamilyLink = async (req, res) => {
         });
 
         console.log('[SUCCESS] Link Activated.');
+
+        // Send confirmation notification
+        try {
+            const initiator = await firestoreService.getUser(userId);
+            await firestoreService.createNotification({
+                user_id: member.id,
+                title: 'Family Link Connected',
+                body: `You are now connected with ${initiator?.name || 'family member'}.`,
+                type: 'family_connected'
+            });
+        } catch (notifErr) {}
+
         res.json({ message: 'Family link verified successfully.' });
     } catch (err) {
         console.error('[FAMILY] Verify error:', err);
         res.status(500).json({ error: err.message });
     }
 };
+
 
 // ---------------------------------------------------------------------------
 // GET /api/family/list

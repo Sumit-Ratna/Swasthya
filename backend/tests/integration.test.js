@@ -88,6 +88,19 @@ jest.mock('../src/services/firestoreService', () => {
             return null;
         }),
 
+        getUserByIdentifier: jest.fn(async (identifier) => {
+            if (!identifier) return null;
+            const clean = String(identifier).trim().toLowerCase();
+            for (const user of mockStore.users.values()) {
+                if ((user.email && user.email.toLowerCase() === clean) ||
+                    (user.phone && user.phone === clean)) {
+                    return { ...user };
+                }
+            }
+            return null;
+        }),
+
+
         createUser: jest.fn(async (id, userData) => {
             const user = { id, ...userData, createdAt: new Date() };
             mockStore.users.set(id, user);
@@ -780,4 +793,128 @@ describe('HealthNexus API Integration Tests', () => {
             expect(res.body.error).toMatch(/appointment_date is required/i);
         });
     });
+
+    // -------------------------------------------------------------------------
+    // 7. Family Link Flow (POST /api/family/add & /verify)
+    // -------------------------------------------------------------------------
+    describe('7. Family Link Flow (POST /api/family/add & /verify)', () => {
+        let parentToken;
+        let parentUser;
+        let childUser;
+
+        beforeEach(async () => {
+            const parentRes = await request(app)
+                .post('/api/auth/register')
+                .send({
+                    name: 'Parent User',
+                    phone: '9888880001',
+                    email: 'parent@example.com',
+                    role: 'patient',
+                    password: 'Password@123',
+                    confirmPassword: 'Password@123'
+                });
+            parentToken = parentRes.body.accessToken;
+            parentUser = parentRes.body.user;
+
+            const childRes = await request(app)
+                .post('/api/auth/register')
+                .send({
+                    name: 'Child User',
+                    phone: '9888880002',
+                    email: 'child@example.com',
+                    role: 'patient',
+                    password: 'ChildPassword@123',
+                    confirmPassword: 'ChildPassword@123'
+                });
+            childUser = childRes.body.user;
+        });
+
+        it('should initiate and verify family link using member email address', async () => {
+            // Step 1: Initiate link using email
+            const initRes = await request(app)
+                .post('/api/family/add')
+                .set('Authorization', `Bearer ${parentToken}`)
+                .send({
+                    identifier: 'child@example.com',
+                    relation: 'Son'
+                });
+
+            expect(initRes.status).toBe(200);
+            expect(initRes.body.member_name).toBe('Child User');
+            expect(initRes.body.link_id).toBeDefined();
+
+            // Step 2: Verify link using email and child password
+            const verifyRes = await request(app)
+                .post('/api/family/verify')
+                .set('Authorization', `Bearer ${parentToken}`)
+                .send({
+                    identifier: 'child@example.com',
+                    password: 'ChildPassword@123'
+                });
+
+            expect(verifyRes.status).toBe(200);
+            expect(verifyRes.body.message).toMatch(/verified successfully/i);
+        });
+
+        it('should initiate and verify family link using member phone number', async () => {
+            // Step 1: Initiate link using phone
+            const initRes = await request(app)
+                .post('/api/family/add')
+                .set('Authorization', `Bearer ${parentToken}`)
+                .send({
+                    phone: '9888880002',
+                    relation: 'Son'
+                });
+
+            expect(initRes.status).toBe(200);
+            expect(initRes.body.member_name).toBe('Child User');
+
+            // Step 2: Verify link using phone
+            const verifyRes = await request(app)
+                .post('/api/family/verify')
+                .set('Authorization', `Bearer ${parentToken}`)
+                .send({
+                    phone: '9888880002',
+                    password: 'ChildPassword@123'
+                });
+
+            expect(verifyRes.status).toBe(200);
+            expect(verifyRes.body.message).toMatch(/verified successfully/i);
+        });
+
+        it('should reject family link when identifier does not exist', async () => {
+            const res = await request(app)
+                .post('/api/family/add')
+                .set('Authorization', `Bearer ${parentToken}`)
+                .send({
+                    identifier: 'nonexistent@example.com',
+                    relation: 'Daughter'
+                });
+
+            expect(res.status).toBe(404);
+            expect(res.body.error).toMatch(/user not found/i);
+        });
+
+        it('should reject verification when member password is wrong', async () => {
+            await request(app)
+                .post('/api/family/add')
+                .set('Authorization', `Bearer ${parentToken}`)
+                .send({
+                    identifier: 'child@example.com',
+                    relation: 'Son'
+                });
+
+            const verifyRes = await request(app)
+                .post('/api/family/verify')
+                .set('Authorization', `Bearer ${parentToken}`)
+                .send({
+                    identifier: 'child@example.com',
+                    password: 'WrongPassword'
+                });
+
+            expect(verifyRes.status).toBe(401);
+            expect(verifyRes.body.error).toMatch(/incorrect password/i);
+        });
+    });
 });
+

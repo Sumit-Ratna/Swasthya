@@ -11,8 +11,8 @@ const FamilyHealth = () => {
     const navigate = useNavigate();
     const [members, setMembers] = useState([]);
     const [showAddModal, setShowAddModal] = useState(false);
-    const [step, setStep] = useState('phone'); // 'phone' or 'password'
-    const [newMemberPhone, setNewMemberPhone] = useState('');
+    const [step, setStep] = useState('identifier'); // 'identifier' or 'password'
+    const [newMemberIdentifier, setNewMemberIdentifier] = useState('');
     const [memberPassword, setMemberPassword] = useState('');
     const [memberName, setMemberName] = useState('');
     const [relation, setRelation] = useState('Family');
@@ -43,7 +43,8 @@ const FamilyHealth = () => {
         try {
             const token = localStorage.getItem('accessToken');
             const res = await axios.post(`${API_URL}/api/family/add`, {
-                phone: newMemberPhone,
+                identifier: newMemberIdentifier.trim(),
+                phone: newMemberIdentifier.trim(), // for backward compatibility
                 relation: relation
             }, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -68,7 +69,8 @@ const FamilyHealth = () => {
         try {
             const token = localStorage.getItem('accessToken');
             await axios.post(`${API_URL}/api/family/verify`, {
-                phone: newMemberPhone,
+                identifier: newMemberIdentifier.trim(),
+                phone: newMemberIdentifier.trim(), // for backward compatibility
                 password: memberPassword
             }, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -88,13 +90,14 @@ const FamilyHealth = () => {
 
     const closeModal = () => {
         setShowAddModal(false);
-        setStep('phone');
-        setNewMemberPhone('');
+        setStep('identifier');
+        setNewMemberIdentifier('');
         setMemberPassword('');
         setMemberName('');
         setRelation('Family');
         setError('');
     };
+
 
     const handleRemoveMember = async (memberId) => {
         if (!window.confirm("Are you sure you want to remove this family member?")) return;
@@ -229,23 +232,23 @@ const FamilyHealth = () => {
                                 </button>
                             </div>
 
-                            <form onSubmit={step === 'phone' ? handleInitiate : handleVerify}>
-                                {step === 'phone' ? (
+                            <form onSubmit={step === 'identifier' ? handleInitiate : handleVerify}>
+                                {step === 'identifier' ? (
                                     <>
                                         <div style={{ marginBottom: '16px' }}>
                                             <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#8E8E93', marginBottom: '6px' }}>
-                                                PHONE NUMBER
+                                                PHONE NUMBER OR EMAIL
                                             </label>
                                             <input
-                                                type="tel"
-                                                placeholder="Enter their registered phone"
-                                                value={newMemberPhone}
-                                                onChange={(e) => setNewMemberPhone(e.target.value)}
+                                                type="text"
+                                                placeholder="Enter registered phone number or email"
+                                                value={newMemberIdentifier}
+                                                onChange={(e) => setNewMemberIdentifier(e.target.value)}
                                                 required
                                                 style={{ width: '100%', padding: '12px', fontSize: '16px', borderRadius: '8px', border: '1px solid #E5E5EA' }}
                                             />
                                             <p style={{ fontSize: '11px', color: '#8E8E93', marginTop: '4px' }}>
-                                                Note: The family member must already have an account on HealthNexus.
+                                                Note: The family member must already have an account on HealthNexus (with this phone or email).
                                             </p>
                                         </div>
                                         <div style={{ marginBottom: '24px' }}>
@@ -279,7 +282,7 @@ const FamilyHealth = () => {
                                             </div>
                                             <h4 style={{ margin: '0 0 4px' }}>Authorize Connection</h4>
                                             <p style={{ fontSize: '13px', color: '#8E8E93', margin: 0 }}>
-                                                Enter the password for {memberName ? <strong>{memberName}</strong> : newMemberPhone} to confirm permission.
+                                                Enter the password for {memberName ? <strong>{memberName}</strong> : newMemberIdentifier} to confirm permission.
                                             </p>
                                         </div>
                                         <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#8E8E93', marginBottom: '6px' }}>
@@ -308,9 +311,10 @@ const FamilyHealth = () => {
                                     disabled={loading}
                                     style={{ width: '100%', padding: '14px', fontSize: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
                                 >
-                                    {loading ? 'Processing...' : (step === 'phone' ? 'Next: Enter Password' : 'Confirm & Connect')}
+                                    {loading ? 'Processing...' : (step === 'identifier' ? 'Next: Enter Password' : 'Confirm & Connect')}
                                 </button>
                             </form>
+
                         </motion.div>
                     </div>
                 )}

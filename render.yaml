@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: healthnexus-backend
+    name: swasthya-backend
     env: node
     plan: free
     rootDir: backend
@@ -9,6 +9,8 @@ services:
     envVars:
       - key: PORT
         value: 8000
+      - key: NODE_ENV
+        value: production
       - key: FRONTEND_URL
         sync: false
       - key: JWT_SECRET
@@ -21,7 +23,11 @@ services:
         value: 10
       - key: GEMINI_API_KEY
         sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
       - key: FIREBASE_STORAGE_BUCKET
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT
         sync: false
       - key: TWILIO_ACCOUNT_SID
         sync: false

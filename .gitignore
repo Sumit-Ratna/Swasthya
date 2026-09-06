@@ -15,6 +15,9 @@ build/
 # Firebase/Secret Files
 service-account.json
 **/service-account.json
+sa-b64.txt
+**/sa-b64.txt
+
 
 # Uploads
 uploads/

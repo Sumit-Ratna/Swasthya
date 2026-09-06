@@ -1,4 +1,5 @@
 {
+  "installCommand": "npm --prefix frontend_react install",
   "buildCommand": "npm --prefix frontend_react run build",
   "outputDirectory": "frontend_react/dist",
   "rewrites": [

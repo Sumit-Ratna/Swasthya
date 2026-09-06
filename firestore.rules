@@ -98,5 +98,12 @@ service cloud.firestore {
         resource.data.doctor_id == request.auth.uid
       );
     }
+
+    // ── NOTIFICATIONS ─────────────────────────────────────────────────
+    // A user can read and manage their own notifications.
+    match /notifications/{notificationId} {
+      allow read, update, delete: if isAuthenticated() && resource.data.user_id == request.auth.uid;
+      allow create: if isAuthenticated();
+    }
   }
 }

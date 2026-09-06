@@ -12,6 +12,7 @@ const profileRoutes = require('./routes/profile');
 const appointmentRoutes = require('./routes/appointments');
 const doctorRoutes = require('./routes/doctor');
 const familyRoutes = require('./routes/family');
+const notificationRoutes = require('./routes/notifications');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -42,6 +43,7 @@ app.use('/api/family', familyRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/doctor', doctorRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 app.get('/', (req, res) => {
     res.send('HealthNexus API is Running with Firebase');

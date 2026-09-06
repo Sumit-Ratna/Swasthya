@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import axios from 'axios';
 import { API_URL } from '../config';
+import NotificationBell from '../components/NotificationBell';
 
 const Home = () => {
     const { user } = useContext(AuthContext);
@@ -53,11 +54,14 @@ const Home = () => {
                     <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-secondary)' }}>Welcome back,</p>
                     <h1 style={{ fontSize: '24px', color: 'var(--text-primary)' }}>{user?.name || 'Patient'}!</h1>
                 </div>
-                <div
-                    onClick={() => navigate('/profile')}
-                    style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                >
-                    <span style={{ fontWeight: 'bold', color: 'var(--primary-color)' }}>{user?.name?.[0]?.toUpperCase() || 'P'}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <NotificationBell />
+                    <div
+                        onClick={() => navigate('/profile')}
+                        style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                    >
+                        <span style={{ fontWeight: 'bold', color: 'var(--primary-color)' }}>{user?.name?.[0]?.toUpperCase() || 'P'}</span>
+                    </div>
                 </div>
             </header>
 

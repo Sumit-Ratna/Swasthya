@@ -5,6 +5,7 @@ import axios from 'axios';
 import { Users, Calendar, FileText, Activity, User, Pill, Stethoscope, QrCode, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { API_URL } from '../config';
+import NotificationBell from '../components/NotificationBell';
 
 const DoctorDashboard = () => {
     const { user } = useContext(AuthContext);
@@ -43,11 +44,14 @@ const DoctorDashboard = () => {
 
     return (
         <div style={{ padding: '20px', backgroundColor: 'var(--bg-color)', minHeight: '100vh' }}>
-            <header style={{ marginBottom: '24px' }}>
-                <h1 className="animate-enter" style={{ color: 'var(--text-primary)' }}>Doctor Dashboard</h1>
-                <p className="animate-enter" style={{ animationDelay: '0.1s', color: 'var(--text-secondary)' }}>
-                    Welcome, Dr. {user?.name}
-                </p>
+            <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
+                <div>
+                    <h1 className="animate-enter" style={{ color: 'var(--text-primary)', margin: 0 }}>Doctor Dashboard</h1>
+                    <p className="animate-enter" style={{ animationDelay: '0.1s', color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+                        Welcome, Dr. {user?.name}
+                    </p>
+                </div>
+                <NotificationBell />
             </header>
 
             {/* Stats Cards */}

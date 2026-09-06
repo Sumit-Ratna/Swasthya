@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { db } = require('./config/firebaseAdmin');
+const { admin, db } = require('./config/firebaseAdmin');
 const path = require('path');
 require('dotenv').config();
 
@@ -54,7 +54,11 @@ app.get('/api/health', (req, res) => {
     res.json({
         status: 'ok',
         firestore: !!db,
-        firebaseApps: admin.apps.length,
+        firebaseApps: admin?.apps?.length || 0,
+        hasEnvServiceAccount: !!process.env.FIREBASE_SERVICE_ACCOUNT,
+        serviceAccountLength: process.env.FIREBASE_SERVICE_ACCOUNT ? process.env.FIREBASE_SERVICE_ACCOUNT.length : 0,
+        hasPrivateKey: !!process.env.FIREBASE_PRIVATE_KEY,
+        hasClientEmail: !!process.env.FIREBASE_CLIENT_EMAIL,
         timestamp: new Date().toISOString()
     });
 });

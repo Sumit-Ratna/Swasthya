@@ -17,6 +17,8 @@ service-account.json
 **/service-account.json
 sa-b64.txt
 **/sa-b64.txt
+RENDER_ENV_COPY_PASTE.txt
+**/RENDER_ENV_COPY_PASTE.txt
 
 
 # Uploads

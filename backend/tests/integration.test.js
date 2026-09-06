@@ -234,6 +234,11 @@ jest.mock('../src/services/firestoreService', () => {
         }),
 
         // Family Link methods
+        getFamilyLinkById: jest.fn(async (linkId) => {
+            const link = mockStore.familyLinks.get(linkId);
+            return link ? { ...link } : null;
+        }),
+
         getFamilyLink: jest.fn(async (userId, memberId) => {
             for (const link of mockStore.familyLinks.values()) {
                 if (link.user_id === userId && link.family_member_id === memberId) {
@@ -241,6 +246,51 @@ jest.mock('../src/services/firestoreService', () => {
                 }
             }
             return null;
+        }),
+
+        getActiveFamilyLink: jest.fn(async (userA, userB) => {
+            for (const link of mockStore.familyLinks.values()) {
+                if (((link.user_id === userA && link.family_member_id === userB) ||
+                     (link.user_id === userB && link.family_member_id === userA)) &&
+                    link.status === 'active') {
+                    return { ...link };
+                }
+            }
+            return null;
+        }),
+
+        getPendingFamilyRequests: jest.fn(async (userId) => {
+            const requests = [];
+            for (const link of mockStore.familyLinks.values()) {
+                if (link.family_member_id === userId && link.status === 'pending') {
+                    const requester = mockStore.users.get(link.user_id);
+                    requests.push({
+                        linkId: link.id,
+                        relation: link.relation,
+                        status: link.status,
+                        createdAt: link.createdAt,
+                        requester: requester ? { ...requester } : { id: link.user_id, name: 'Requester' }
+                    });
+                }
+            }
+            return requests;
+        }),
+
+        getOutgoingFamilyRequests: jest.fn(async (userId) => {
+            const requests = [];
+            for (const link of mockStore.familyLinks.values()) {
+                if (link.user_id === userId && link.status === 'pending') {
+                    const recipient = mockStore.users.get(link.family_member_id);
+                    requests.push({
+                        linkId: link.id,
+                        relation: link.relation,
+                        status: link.status,
+                        createdAt: link.createdAt,
+                        recipient: recipient ? { ...recipient } : { id: link.family_member_id, name: 'Recipient' }
+                    });
+                }
+            }
+            return requests;
         }),
 
         createFamilyLink: jest.fn(async (linkData) => {
@@ -258,18 +308,31 @@ jest.mock('../src/services/firestoreService', () => {
             return { ...updated };
         }),
 
+        deleteFamilyLink: jest.fn(async (id) => {
+            mockStore.familyLinks.delete(id);
+        }),
+
+
         getFamilyMembers: jest.fn(async (userId) => {
             const members = [];
             for (const link of mockStore.familyLinks.values()) {
-                if (link.user_id === userId && link.status === 'active') {
-                    const member = mockStore.users.get(link.family_member_id);
+                if ((link.user_id === userId || link.family_member_id === userId) && link.status === 'active') {
+                    const targetId = link.user_id === userId ? link.family_member_id : link.user_id;
+                    const member = mockStore.users.get(targetId);
                     if (member) {
-                        members.push({ ...member, relation: link.relation, link_id: link.id });
+                        members.push({
+                            ...member,
+                            relation: link.relation,
+                            link_id: link.id,
+                            myGrantedPermissions: link.permissions?.[userId] || { access_level: 'full' },
+                            memberGrantedPermissions: link.permissions?.[targetId] || { access_level: 'full' }
+                        });
                     }
                 }
             }
             return members;
         }),
+
 
         // Appointments methods
         getAppointmentsByPatient: jest.fn(async (patientId) => {
@@ -800,6 +863,7 @@ describe('HealthNexus API Integration Tests', () => {
     describe('7. Family Link Flow (POST /api/family/add & /verify)', () => {
         let parentToken;
         let parentUser;
+        let childToken;
         let childUser;
 
         beforeEach(async () => {
@@ -826,6 +890,7 @@ describe('HealthNexus API Integration Tests', () => {
                     password: 'ChildPassword@123',
                     confirmPassword: 'ChildPassword@123'
                 });
+            childToken = childRes.body.accessToken;
             childUser = childRes.body.user;
         });
 
@@ -915,6 +980,110 @@ describe('HealthNexus API Integration Tests', () => {
             expect(verifyRes.status).toBe(401);
             expect(verifyRes.body.error).toMatch(/incorrect password/i);
         });
+
+        it('should allow the invited family member to view pending requests, accept with selected file access, and filter documents accordingly', async () => {
+            // Create 2 documents for child
+            const firestoreService = require('../src/services/firestoreService');
+            const doc1 = await firestoreService.createDocument({
+                patient_id: childUser.id,
+                type: 'lab_report',
+                summary: 'Child Blood Report',
+                file_url: 'https://storage.googleapis.com/test-bucket/doc1.pdf'
+            });
+            const doc2 = await firestoreService.createDocument({
+                patient_id: childUser.id,
+                type: 'prescription',
+                summary: 'Child Private Prescription',
+                file_url: 'https://storage.googleapis.com/test-bucket/doc2.pdf'
+            });
+
+            // 1. Parent initiates request
+            const addRes = await request(app)
+                .post('/api/family/add')
+                .set('Authorization', `Bearer ${parentToken}`)
+                .send({
+                    identifier: 'child@example.com',
+                    relation: 'Son'
+                });
+            expect(addRes.status).toBe(200);
+            const linkId = addRes.body.link_id;
+
+            // 2. Child checks incoming requests
+            const reqsRes = await request(app)
+                .get('/api/family/requests')
+                .set('Authorization', `Bearer ${childToken}`);
+            expect(reqsRes.status).toBe(200);
+            expect(reqsRes.body.incoming.length).toBe(1);
+            expect(reqsRes.body.incoming[0].linkId).toBe(linkId);
+            expect(reqsRes.body.incoming[0].requester.name).toBe('Parent User');
+
+            // 3. Child accepts request granting only doc1 (Selected Files)
+            const respondRes = await request(app)
+                .post(`/api/family/requests/${linkId}/respond`)
+                .set('Authorization', `Bearer ${childToken}`)
+                .send({
+                    action: 'accept',
+                    access_level: 'selected',
+                    allowed_document_ids: [doc1.id]
+                });
+            expect(respondRes.status).toBe(200);
+            expect(respondRes.body.permissions.access_level).toBe('selected');
+
+            // 4. Parent views child's documents via GET /api/documents/patient/:id
+            const viewRes = await request(app)
+                .get(`/api/documents/patient/${childUser.id}`)
+                .set('Authorization', `Bearer ${parentToken}`);
+            expect(viewRes.status).toBe(200);
+            // Should ONLY include doc1, doc2 should be excluded!
+            expect(viewRes.body.length).toBe(1);
+            expect(viewRes.body[0].id).toBe(doc1.id);
+
+            // 5. Child updates permissions to 'none'
+            const updatePermRes = await request(app)
+                .patch(`/api/family/permissions/${parentUser.id}`)
+                .set('Authorization', `Bearer ${childToken}`)
+                .send({
+                    access_level: 'none',
+                    allowed_document_ids: []
+                });
+            expect(updatePermRes.status).toBe(200);
+
+            // 6. Parent views again: should see 0 documents
+            const viewNoneRes = await request(app)
+                .get(`/api/documents/patient/${childUser.id}`)
+                .set('Authorization', `Bearer ${parentToken}`);
+            expect(viewNoneRes.status).toBe(200);
+            expect(viewNoneRes.body.length).toBe(0);
+        });
+
+        it('should allow invited family member to decline a request', async () => {
+            // Parent initiates request
+            const addRes = await request(app)
+                .post('/api/family/add')
+                .set('Authorization', `Bearer ${parentToken}`)
+                .send({
+                    identifier: 'child@example.com',
+                    relation: 'Son'
+                });
+            const linkId = addRes.body.link_id;
+
+            // Child declines
+            const declineRes = await request(app)
+                .post(`/api/family/requests/${linkId}/respond`)
+                .set('Authorization', `Bearer ${childToken}`)
+                .send({
+                    action: 'reject'
+                });
+            expect(declineRes.status).toBe(200);
+            expect(declineRes.body.message).toMatch(/declined/i);
+
+            // Incoming requests should now be empty
+            const reqsRes = await request(app)
+                .get('/api/family/requests')
+                .set('Authorization', `Bearer ${childToken}`);
+            expect(reqsRes.body.incoming.length).toBe(0);
+        });
     });
 });
+
 

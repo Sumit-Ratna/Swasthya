@@ -130,10 +130,25 @@ exports.getDocuments = async (req, res) => {
                 return sharedWith.includes(userId) || isCreator;
             });
         } else if (role === 'patient' && String(patient_id) !== String(userId)) {
-            // Check family link
-            const link = await firestoreService.getFamilyLink(userId, patient_id);
+            // Check family link (bidirectional)
+            let link = await firestoreService.getFamilyLink(userId, patient_id);
+            if (!link) {
+                link = await firestoreService.getFamilyLink(patient_id, userId);
+            }
             if (!link || link.status !== 'active') {
                 return res.status(403).json({ error: "Unauthorized access to patient documents" });
+            }
+
+            // Enforce permissions granted by patient_id to viewer (userId)
+            const permissions = link.permissions || {};
+            const patientPerm = permissions[patient_id] || { access_level: 'full', allowed_document_ids: [] };
+            const accessLevel = patientPerm.access_level || 'full';
+
+            if (accessLevel === 'none') {
+                visibleDocs = [];
+            } else if (accessLevel === 'selected') {
+                const allowedSet = new Set(patientPerm.allowed_document_ids || []);
+                visibleDocs = visibleDocs.filter(doc => allowedSet.has(doc.id));
             }
         }
 
@@ -274,11 +289,32 @@ exports.analyzeDocument = async (req, res) => {
         const role = req.user?.role;
 
         let canAccess = false;
-        if (role === 'patient' && String(document.patient_id) === String(userId)) canAccess = true;
+        if (role === 'patient') {
+            if (String(document.patient_id) === String(userId)) {
+                canAccess = true;
+            } else {
+                let link = await firestoreService.getFamilyLink(userId, document.patient_id);
+                if (!link) link = await firestoreService.getFamilyLink(document.patient_id, userId);
+                if (link && link.status === 'active') {
+                    const permissions = link.permissions || {};
+                    const patientPerm = permissions[document.patient_id] || { access_level: 'full', allowed_document_ids: [] };
+                    const accessLevel = patientPerm.access_level || 'full';
+                    if (accessLevel === 'full') {
+                        canAccess = true;
+                    } else if (accessLevel === 'selected' && patientPerm.allowed_document_ids?.includes(document.id)) {
+                        canAccess = true;
+                    }
+                }
+            }
+        }
         if (role === 'doctor') {
             const sharedWith = document.shared_with || [];
             if (sharedWith.includes(userId)) canAccess = true;
             if (document.extracted_data && document.extracted_data.doctor_id == userId) canAccess = true;
+        }
+
+        if (!canAccess) {
+            return res.status(403).json({ error: "Access denied to analyze this document" });
         }
 
         if (!document.file_url) {

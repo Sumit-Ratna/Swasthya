@@ -250,6 +250,13 @@ class FirestoreService {
         return { id: linkRef.id, ...linkData };
     }
 
+    async getFamilyLinkById(linkId) {
+        if (!this.db) throw new Error('Firestore not initialized');
+        const doc = await this.db.collection('familyLinks').doc(linkId).get();
+        if (!doc.exists) return null;
+        return { id: doc.id, ...doc.data() };
+    }
+
     async getFamilyLink(userId, memberId) {
         if (!this.db) throw new Error('Firestore not initialized');
         const snapshot = await this.db.collection('familyLinks')
@@ -260,6 +267,69 @@ class FirestoreService {
 
         if (snapshot.empty) return null;
         return { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+    }
+
+    async getActiveFamilyLink(userA, userB) {
+        if (!this.db) throw new Error('Firestore not initialized');
+        let link = await this.getFamilyLink(userA, userB);
+        if (!link) {
+            link = await this.getFamilyLink(userB, userA);
+        }
+        return link;
+    }
+
+    async getPendingFamilyRequests(userId) {
+        if (!this.db) throw new Error('Firestore not initialized');
+        const snapshot = await this.db.collection('familyLinks')
+            .where('family_member_id', '==', userId)
+            .where('status', '==', 'pending')
+            .get();
+
+        const requests = [];
+        for (const doc of snapshot.docs) {
+            const data = doc.data();
+            const requester = await this.getUser(data.user_id);
+            requests.push({
+                linkId: doc.id,
+                relation: data.relation || 'Family',
+                status: data.status,
+                createdAt: data.createdAt,
+                requester: requester ? {
+                    id: requester.id,
+                    name: requester.name,
+                    email: requester.email,
+                    phone: requester.phone
+                } : { id: data.user_id, name: 'Family Member' }
+            });
+        }
+        return requests;
+    }
+
+    async getOutgoingFamilyRequests(userId) {
+        if (!this.db) throw new Error('Firestore not initialized');
+        const snapshot = await this.db.collection('familyLinks')
+            .where('user_id', '==', userId)
+            .where('status', '==', 'pending')
+            .get();
+
+        const requests = [];
+        for (const doc of snapshot.docs) {
+            const data = doc.data();
+            const recipient = await this.getUser(data.family_member_id);
+            requests.push({
+                linkId: doc.id,
+                relation: data.relation || 'Family',
+                status: data.status,
+                createdAt: data.createdAt,
+                recipient: recipient ? {
+                    id: recipient.id,
+                    name: recipient.name,
+                    email: recipient.email,
+                    phone: recipient.phone
+                } : { id: data.family_member_id, name: 'Family Member' }
+            });
+        }
+        return requests;
     }
 
     async getFamilyMembers(userId) {
@@ -290,11 +360,16 @@ class FirestoreService {
 
                 const member = await this.getUser(memberId);
                 if (member) {
+                    const permissions = linkData.permissions || {};
                     members.push({
                         ...member,
                         relation: linkData.relation || 'Family',
                         linkId: doc.id,
-                        isInitiator: idField === 'family_member_id'
+                        isInitiator: idField === 'family_member_id',
+                        // What I granted to this member
+                        myGrantedPermissions: permissions[userId] || { access_level: 'full', allowed_document_ids: [] },
+                        // What this member granted to me
+                        memberGrantedPermissions: permissions[memberId] || { access_level: 'full', allowed_document_ids: [] }
                     });
                 }
             }
@@ -315,6 +390,13 @@ class FirestoreService {
         const doc = await this.db.collection('familyLinks').doc(linkId).get();
         return { id: doc.id, ...doc.data() };
     }
+
+    async deleteFamilyLink(linkId) {
+        if (!this.db) throw new Error('Firestore not initialized');
+        await this.db.collection('familyLinks').doc(linkId).delete();
+    }
+
+
 
     /**
      * At signup, auto-activate any pending familyLinks where another user already

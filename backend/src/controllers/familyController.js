@@ -166,6 +166,146 @@ exports.verifyFamilyLink = async (req, res) => {
 
 
 // ---------------------------------------------------------------------------
+// GET /api/family/requests — Incoming & Outgoing pending requests
+// ---------------------------------------------------------------------------
+exports.getFamilyRequests = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const incoming = await firestoreService.getPendingFamilyRequests(userId);
+        const outgoing = await firestoreService.getOutgoingFamilyRequests(userId);
+        res.json({ incoming, outgoing });
+    } catch (err) {
+        console.error('[FAMILY] Get requests error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// ---------------------------------------------------------------------------
+// POST /api/family/requests/:linkId/respond — Accept or Decline a request
+// ---------------------------------------------------------------------------
+exports.respondToFamilyRequest = async (req, res) => {
+    try {
+        const { linkId } = req.params;
+        const { action, access_level, allowed_document_ids } = req.body;
+        const userId = req.user.id;
+
+        console.log(`[FAMILY] Respond to Request ${linkId} by User ${userId}: Action ${action}, AccessLevel ${access_level}`);
+
+        const link = await firestoreService.getFamilyLinkById(linkId);
+        if (!link) {
+            return res.status(404).json({ error: 'Connection request not found.' });
+        }
+
+        // Only the target member (family_member_id) can accept/reject the request
+        if (link.family_member_id !== userId) {
+            return res.status(403).json({ error: 'You are not authorized to respond to this request.' });
+        }
+
+        if (link.status === 'active') {
+            return res.status(409).json({ error: 'Connection is already active.' });
+        }
+
+        if (action === 'reject') {
+            await firestoreService.deleteFamilyLink(linkId);
+
+            // Notify initiator
+            try {
+                const responder = await firestoreService.getUser(userId);
+                await firestoreService.createNotification({
+                    user_id: link.user_id,
+                    title: 'Family Connection Declined',
+                    body: `${responder?.name || 'A family member'} declined your connection request.`,
+                    type: 'family_declined'
+                });
+            } catch (nErr) {}
+
+            return res.json({ message: 'Family connection request declined.' });
+        }
+
+        if (action === 'accept') {
+            const validAccess = ['full', 'selected', 'none'].includes(access_level) ? access_level : 'full';
+            const docIds = Array.isArray(allowed_document_ids) ? allowed_document_ids : [];
+
+            const currentPermissions = link.permissions || {};
+            currentPermissions[userId] = {
+                access_level: validAccess,
+                allowed_document_ids: validAccess === 'selected' ? docIds : [],
+                updatedAt: new Date().toISOString()
+            };
+
+            await firestoreService.updateFamilyLink(linkId, {
+                status: 'active',
+                verified_at: new Date(),
+                permissions: currentPermissions
+            });
+
+            // Notify initiator
+            try {
+                const responder = await firestoreService.getUser(userId);
+                await firestoreService.createNotification({
+                    user_id: link.user_id,
+                    title: 'Family Connection Accepted',
+                    body: `${responder?.name || 'A family member'} accepted your family connection request.`,
+                    type: 'family_accepted'
+                });
+            } catch (nErr) {}
+
+            return res.json({
+                message: 'Family connection accepted successfully.',
+                permissions: currentPermissions[userId]
+            });
+        }
+
+        return res.status(400).json({ error: "Invalid action. Must be 'accept' or 'reject'." });
+    } catch (err) {
+        console.error('[FAMILY] Respond request error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// ---------------------------------------------------------------------------
+// PATCH /api/family/permissions/:memberId — Update sharing permissions for a member
+// ---------------------------------------------------------------------------
+exports.updateFamilyPermissions = async (req, res) => {
+    try {
+        const { memberId } = req.params;
+        const { access_level, allowed_document_ids } = req.body;
+        const userId = req.user.id;
+
+        const validAccess = ['full', 'selected', 'none'].includes(access_level) ? access_level : 'full';
+        const docIds = Array.isArray(allowed_document_ids) ? allowed_document_ids : [];
+
+        let link = await firestoreService.getFamilyLink(userId, memberId);
+        if (!link) {
+            link = await firestoreService.getFamilyLink(memberId, userId);
+        }
+
+        if (!link || link.status !== 'active') {
+            return res.status(404).json({ error: 'Active family connection not found.' });
+        }
+
+        const permissions = link.permissions || {};
+        permissions[userId] = {
+            access_level: validAccess,
+            allowed_document_ids: validAccess === 'selected' ? docIds : [],
+            updatedAt: new Date().toISOString()
+        };
+
+        await firestoreService.updateFamilyLink(link.id, {
+            permissions
+        });
+
+        res.json({
+            message: 'Sharing permissions updated successfully.',
+            permissions: permissions[userId]
+        });
+    } catch (err) {
+        console.error('[FAMILY] Update permissions error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// ---------------------------------------------------------------------------
 // GET /api/family/list
 // ---------------------------------------------------------------------------
 exports.getFamilyMembers = async (req, res) => {
@@ -205,7 +345,19 @@ exports.getMemberDetails = async (req, res) => {
         }
 
         // Get member's documents
-        const documents = await firestoreService.getDocumentsByPatient(memberId);
+        let documents = await firestoreService.getDocumentsByPatient(memberId);
+
+        // Filter documents based on permissions granted by memberId to userId
+        const permissions = link.permissions || {};
+        const memberPerm = permissions[memberId] || { access_level: 'full', allowed_document_ids: [] };
+        const accessLevel = memberPerm.access_level || 'full';
+
+        if (accessLevel === 'none') {
+            documents = [];
+        } else if (accessLevel === 'selected') {
+            const allowedSet = new Set(memberPerm.allowed_document_ids || []);
+            documents = documents.filter(doc => allowedSet.has(doc.id));
+        }
 
         // Get member's appointments
         const appointments = await firestoreService.getAppointmentsByPatient(memberId);
@@ -223,7 +375,8 @@ exports.getMemberDetails = async (req, res) => {
             },
             documents,
             appointments,
-            relation: link.relation
+            relation: link.relation,
+            access_level: accessLevel
         });
     } catch (err) {
         console.error('[FAMILY] Get member details error:', err);
@@ -252,7 +405,7 @@ exports.removeFamilyMember = async (req, res) => {
             return res.status(404).json({ error: 'Link not found.' });
         }
 
-        await firestoreService.db.collection('familyLinks').doc(link.id).delete();
+        await firestoreService.deleteFamilyLink(link.id);
 
         res.json({ message: 'Family member removed successfully.' });
     } catch (err) {
@@ -262,3 +415,4 @@ exports.removeFamilyMember = async (req, res) => {
 };
 
 module.exports = exports;
+

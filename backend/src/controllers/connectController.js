@@ -161,17 +161,21 @@ exports.getPatientDetails = async (req, res) => {
 
         // Filter documents visible to doctor
         const visibleDocs = documents.filter(doc => {
-            const isCreator = doc.extracted_data?.doctor_id === doctor_id;
+            const isCreator = String(doc.extracted_data?.doctor_id || '') === String(doctor_id);
 
             // 1. If doctor created it, they ALWAYS see it (even if patient hid it)
             if (isCreator) return true;
 
             // 2. If it's hidden for patient (and not created by this doctor), ignore it
-            // (This usually means patient deleted a report from another doctor)
-            if (doc.extracted_data?.hidden_for_patient === "true") return false;
+            if (doc.extracted_data?.hidden_for_patient === "true" || doc.extracted_data?.hidden_for_patient === true) return false;
 
-            // 3. If explicitly shared with this doctor
-            if (doc.is_shared && doc.shared_with?.includes(doctor_id)) return true;
+            // 3. If explicitly shared with this doctor (or shared generally)
+            const sharedWith = (doc.shared_with || []).map(String);
+            if (doc.is_shared && (sharedWith.includes(String(doctor_id)) || sharedWith.length === 0)) return true;
+
+            // 4. Since the doctor and patient have an active verified clinical connection (link verified above),
+            // allow the treating doctor to see the patient's uploaded health records (unless marked private)
+            if (String(doc.patient_id) === String(patient_id) && !doc.is_private) return true;
 
             return false;
         });

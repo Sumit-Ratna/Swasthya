@@ -47,6 +47,18 @@ exports.uploadReport = async (req, res) => {
             initialData.uploaded_by = 'doctor';
             sharedWith = [doctorId];
             isShared = true;
+        } else {
+            // Patient upload: check if patient has connected doctors and auto-share
+            try {
+                const connectedDoctors = await firestoreService.getDoctorsByPatient(patient_id);
+                if (connectedDoctors && connectedDoctors.length > 0) {
+                    sharedWith = connectedDoctors.map(d => String(d.id));
+                    isShared = true;
+                    console.log(`[STORAGE] Auto-shared report with ${sharedWith.length} connected doctor(s)`);
+                }
+            } catch (linkErr) {
+                console.warn('[STORAGE] Could not auto-fetch connected doctors for sharing:', linkErr.message);
+            }
         }
 
         const newDoc = await firestoreService.createDocument({
@@ -124,10 +136,12 @@ exports.getDocuments = async (req, res) => {
         );
 
         if (role === 'doctor') {
+            const link = await firestoreService.getDoctorPatientLink(userId, patient_id);
             visibleDocs = visibleDocs.filter(doc => {
-                const sharedWith = doc.shared_with || [];
-                const isCreator = doc.extracted_data?.doctor_id === userId;
-                return sharedWith.includes(userId) || isCreator;
+                const sharedWith = (doc.shared_with || []).map(String);
+                const isCreator = String(doc.extracted_data?.doctor_id || '') === String(userId);
+                const isExplicitlyShared = sharedWith.includes(String(userId));
+                return isCreator || isExplicitlyShared || Boolean(link);
             });
         } else if (role === 'patient' && String(patient_id) !== String(userId)) {
             // Check family link (bidirectional)
@@ -190,90 +204,54 @@ exports.updateSharing = async (req, res) => {
 exports.deleteDocument = async (req, res) => {
     try {
         const { id } = req.params;
-        const document = await firestoreService.getDocument(id);
         const userId = req.user?.id;
-        let role = req.user?.role;
+        const role = req.user?.role;
+        const document = await firestoreService.getDocument(id);
 
         if (!document) {
             return res.status(404).json({ error: "Document not found" });
         }
 
-        // Get user if role is missing
-        if (userId && !role) {
-            const userRec = await firestoreService.getUser(userId);
-            if (userRec) {
-                role = userRec.role;
-                console.log(`[SYNC] Role restored from DB: ${role}`);
-            } else {
-                return res.status(401).json({ error: "Session invalid. Please log out and log in again." });
-            }
-        }
-
-        // DOCTOR DELETION LOGIC
         if (role === 'doctor') {
-            const data = document.extracted_data || {};
-            const isDoctorCreated = data.uploaded_by === 'doctor' ||
-                String(data.doctor_id) === String(userId) ||
-                document.type === 'prescription' ||
-                document.type === 'diagnosis_note';
+            const isCreator = document.extracted_data?.doctor_id === userId;
+            const sharedWith = document.shared_with || [];
 
-            // Case: Doctor created this report -> Delete permanently for everyone
-            if (isDoctorCreated) {
-                console.log(`[DELETE] Doctor ${userId} deleting OWN record ${id}. Permanent delete.`);
-                if (document.file_url) {
-                    await storageService.deleteFile(document.file_url);
-                }
+            if (isCreator) {
                 await firestoreService.deleteDocument(id);
-                return res.json({ message: "Record deleted permanently from all systems." });
-            }
-
-            // Case: Patient report shared with doctor -> Only remove sharing (Keep for patient)
-            let sharedWith = document.shared_with || [];
-            if (sharedWith.includes(userId)) {
-                console.log(`[DELETE] Doctor ${userId} removing shared access to patient record ${id}.`);
-                sharedWith = sharedWith.filter(dId => dId !== userId);
-                await firestoreService.updateDocument(id, {
-                    shared_with: sharedWith,
-                    is_shared: sharedWith.length > 0
-                });
-                return res.json({ message: "Access removed. The report remains in the patient's records." });
-            }
-
-            return res.status(403).json({ error: "Permission Denied. You can only delete your own records or remove shared access." });
-        }
-
-        // PATIENT DELETION LOGIC
-        if (role === 'patient') {
-            if (String(document.patient_id) !== String(userId)) {
-                return res.status(403).json({ error: "Unauthorized access" });
-            }
-
-            const data = document.extracted_data || {};
-            const isDoctorCreated = data.uploaded_by === 'doctor' ||
-                data.doctor_id ||
-                document.type === 'prescription' ||
-                document.type === 'diagnosis_note';
-
-            // Case: Patient deleting a Doctor-generated report -> Soft delete (Keep for doctor)
-            if (isDoctorCreated) {
-                console.log(`[DELETE] Patient ${userId} deleting doctor-generated record ${id}. Soft deleting.`);
-                const newData = { ...data, hidden_for_patient: "true" };
-                await firestoreService.updateDocument(id, { extracted_data: newData });
-                return res.json({ message: "Report removed from your view. It remains in the clinic's records." });
-            }
-
-            // Case: Patient deleting their OWN upload -> Permanent delete
-            console.log(`[DELETE] Patient ${userId} deleting their OWN upload ${id}. Permanent delete.`);
-            if (document.file_url) {
                 await storageService.deleteFile(document.file_url);
+                return res.json({ message: "Document permanently deleted by doctor" });
+            } else if (sharedWith.includes(userId)) {
+                const updatedShared = sharedWith.filter(docId => docId !== userId);
+                await firestoreService.updateDocument(id, {
+                    shared_with: updatedShared,
+                    is_shared: updatedShared.length > 0
+                });
+                return res.json({ message: "Access removed. Document unshared from your portal." });
+            } else {
+                return res.status(403).json({ error: "You are not authorized to delete this document" });
             }
-            await firestoreService.deleteDocument(id);
-            return res.json({ message: "Record deleted permanently." });
         }
 
-        return res.status(403).json({ error: `Unauthorized (Status: ${role || 'No Role'})` });
+        if (document.patient_id !== userId) {
+            return res.status(403).json({ error: "Unauthorized to delete this document" });
+        }
+
+        const isCreatedByDoctor = document.extracted_data?.doctor_id || document.type === 'prescription';
+        const isSharedWithDoctors = (document.shared_with && document.shared_with.length > 0) || document.is_shared;
+
+        if (isCreatedByDoctor || isSharedWithDoctors) {
+            const currentExtracted = document.extracted_data || {};
+            await firestoreService.updateDocument(id, {
+                extracted_data: { ...currentExtracted, hidden_for_patient: "true" }
+            });
+            res.json({ message: "Document removed from your health records." });
+        } else {
+            await firestoreService.deleteDocument(id);
+            await storageService.deleteFile(document.file_url);
+            res.json({ message: "Personal document permanently deleted." });
+        }
     } catch (err) {
-        console.error("Delete document error:", err);
+        console.error("Delete Error:", err);
         res.status(500).json({ error: err.message });
     }
 };
@@ -281,40 +259,21 @@ exports.deleteDocument = async (req, res) => {
 exports.analyzeDocument = async (req, res) => {
     try {
         const { id } = req.params;
-        const document = await firestoreService.getDocument(id);
-
-        if (!document) return res.status(404).json({ error: "Document not found" });
-
         const userId = req.user?.id;
         const role = req.user?.role;
 
-        let canAccess = false;
-        if (role === 'patient') {
-            if (String(document.patient_id) === String(userId)) {
-                canAccess = true;
-            } else {
-                let link = await firestoreService.getFamilyLink(userId, document.patient_id);
-                if (!link) link = await firestoreService.getFamilyLink(document.patient_id, userId);
-                if (link && link.status === 'active') {
-                    const permissions = link.permissions || {};
-                    const patientPerm = permissions[document.patient_id] || { access_level: 'full', allowed_document_ids: [] };
-                    const accessLevel = patientPerm.access_level || 'full';
-                    if (accessLevel === 'full') {
-                        canAccess = true;
-                    } else if (accessLevel === 'selected' && patientPerm.allowed_document_ids?.includes(document.id)) {
-                        canAccess = true;
-                    }
-                }
-            }
+        const document = await firestoreService.getDocument(id);
+        if (!document) {
+            return res.status(404).json({ error: "Document not found" });
         }
-        if (role === 'doctor') {
-            const sharedWith = document.shared_with || [];
-            if (sharedWith.includes(userId)) canAccess = true;
-            if (document.extracted_data && document.extracted_data.doctor_id == userId) canAccess = true;
-            if (!canAccess && document.patient_id) {
-                const link = await firestoreService.getDoctorPatientLink(userId, document.patient_id);
-                if (link) canAccess = true;
-            }
+
+        // Authorization check: patient owner, shared doctor, or connected doctor
+        let canAccess = (document.patient_id === userId);
+        if (!canAccess && role === 'doctor') {
+            const isCreator = String(document.extracted_data?.doctor_id || '') === String(userId);
+            const isShared = document.shared_with && document.shared_with.map(String).includes(String(userId));
+            const isLinked = await firestoreService.getDoctorPatientLink(userId, document.patient_id);
+            canAccess = isCreator || isShared || Boolean(isLinked);
         }
 
         if (!canAccess) {
@@ -338,8 +297,25 @@ exports.analyzeDocument = async (req, res) => {
             } else {
                 fileBuffer = Buffer.from(document.file_url.split(',')[1] || '', 'base64');
             }
-        } else {
-            const fetchRes = await fetch(document.file_url);
+        } else if (document.file_url.includes('/api/documents/raw/')) {
+            // Direct retrieval from storageService to avoid network/port loopbacks
+            const match = document.file_url.match(/\/api\/documents\/raw\/([^\/\?#]+)/);
+            if (match) {
+                const rawFile = await storageService.getFile(match[1]);
+                if (rawFile) {
+                    fileBuffer = rawFile.buffer;
+                    mimeType = rawFile.mimetype;
+                }
+            }
+        }
+
+        if (!fileBuffer) {
+            let fetchUrl = document.file_url;
+            if (fetchUrl.includes('localhost:') || fetchUrl.includes('127.0.0.1:')) {
+                const port = process.env.PORT || 8000;
+                fetchUrl = fetchUrl.replace(/https?:\/\/[^\/]+/, `http://localhost:${port}`);
+            }
+            const fetchRes = await fetch(fetchUrl);
             if (!fetchRes.ok) {
                 return res.status(404).json({ error: "Unable to retrieve file from storage" });
             }
@@ -389,6 +365,9 @@ exports.getRawFile = async (req, res) => {
         }
         res.setHeader('Content-Type', fileData.mimetype || 'application/octet-stream');
         res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(req.params.filename || fileData.fileName || 'file')}"`);
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
         res.send(fileData.buffer);
     } catch (err) {
         console.error("Get raw file error:", err);

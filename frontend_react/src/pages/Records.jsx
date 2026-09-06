@@ -624,9 +624,14 @@ const Records = ({ viewingPatientId }) => {
                                 <div style={{ display: 'flex', gap: '8px' }}>
                                     <button
                                         onClick={() => {
-                                            const target = (doc.file_url?.startsWith('http') || doc.file_url?.startsWith('data:'))
-                                                ? doc.file_url
-                                                : `${API_URL}/${doc.file_url?.replace(/^\//, '')}`;
+                                            let target = String(doc.file_url || '').trim();
+                                            if (target.startsWith('data:') || target.includes('storage.googleapis.com') || target.includes('firebasestorage.googleapis.com')) {
+                                                // keep external / data URI as-is
+                                            } else if (/https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(target)) {
+                                                target = target.replace(/^https?:\/\/[^\/]+/, API_URL);
+                                            } else if (!target.startsWith('http://') && !target.startsWith('https://')) {
+                                                target = `${API_URL}/${target.replace(/^\//, '')}`;
+                                            }
                                             window.open(target, '_blank');
                                         }}
                                         disabled={!doc.file_url}

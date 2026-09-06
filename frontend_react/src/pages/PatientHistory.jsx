@@ -373,22 +373,34 @@ const PatientHistory = () => {
                         </div>
                     ) : (
                         documents.map(doc => {
-                            const isImage = doc.file_url && (
-                                doc.file_url.includes('.jpg') ||
-                                doc.file_url.includes('.jpeg') ||
-                                doc.file_url.includes('.png') ||
-                                doc.file_url.includes('.webp') ||
-                                doc.file_url.startsWith('data:image')
+                            const resolveFileUrl = (url) => {
+                                if (!url) return null;
+                                let target = String(url).trim();
+                                if (target.startsWith('data:') || target.includes('storage.googleapis.com') || target.includes('firebasestorage.googleapis.com')) {
+                                    return target;
+                                }
+                                if (/https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(target)) {
+                                    target = target.replace(/^https?:\/\/[^\/]+/, API_URL);
+                                } else if (!target.startsWith('http://') && !target.startsWith('https://')) {
+                                    target = `${API_URL}/${target.replace(/^\//, '')}`;
+                                }
+                                return target;
+                            };
+
+                            const fileTarget = resolveFileUrl(doc.file_url);
+                            const lowerUrl = (doc.file_url || '').toLowerCase();
+                            const isImage = fileTarget && (
+                                lowerUrl.includes('.jpg') ||
+                                lowerUrl.includes('.jpeg') ||
+                                lowerUrl.includes('.png') ||
+                                lowerUrl.includes('.webp') ||
+                                lowerUrl.includes('.gif') ||
+                                lowerUrl.startsWith('data:image')
                             );
-                            const isPdf = doc.file_url && (
-                                doc.file_url.includes('.pdf') ||
-                                doc.file_url.startsWith('data:application/pdf')
+                            const isPdf = fileTarget && (
+                                lowerUrl.includes('.pdf') ||
+                                lowerUrl.startsWith('data:application/pdf')
                             );
-                            const fileTarget = doc.file_url
-                                ? ((doc.file_url.startsWith('http') || doc.file_url.startsWith('data:'))
-                                    ? doc.file_url
-                                    : `${API_URL}/${doc.file_url.replace(/^\//, '')}`)
-                                : null;
 
                             const hasAiData = doc.extracted_data && (
                                 doc.extracted_data.summary_text ||

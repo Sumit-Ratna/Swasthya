@@ -56,22 +56,50 @@ async function uploadBuffer(buffer, destinationPath, mimetype = 'application/oct
         createdAt: Date.now()
     });
 
-    // If Firestore is available and blob fits in a Firestore doc (< 850KB), persist it for durability across restarts
-    if (db && buffer.length <= 850 * 1024) {
+    // If Firestore is available, persist to Firestore so files survive server restarts and scale-down
+    if (db) {
         try {
-            await db.collection('storage_blobs').doc(blobId).set({
-                base64: buffer.toString('base64'),
-                mimetype,
-                fileName: cleanFileName,
-                createdAt: new Date().toISOString()
-            });
+            const base64Str = buffer.toString('base64');
+            const CHUNK_SIZE = 500 * 1024; // ~500KB chunks (Firestore document limit is 1MB)
+
+            if (base64Str.length <= 750 * 1024) {
+                // Single doc for small/medium files
+                await db.collection('storage_blobs').doc(blobId).set({
+                    base64: base64Str,
+                    mimetype,
+                    fileName: cleanFileName,
+                    size: buffer.length,
+                    createdAt: new Date().toISOString()
+                });
+            } else {
+                // Chunked storage for larger reports (high-res scans, multi-page PDFs)
+                const chunksCount = Math.ceil(base64Str.length / CHUNK_SIZE);
+                await db.collection('storage_blobs').doc(blobId).set({
+                    chunks_count: chunksCount,
+                    mimetype,
+                    fileName: cleanFileName,
+                    size: buffer.length,
+                    createdAt: new Date().toISOString()
+                });
+
+                const batch = db.batch();
+                for (let i = 0; i < chunksCount; i++) {
+                    const chunk = base64Str.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+                    const chunkRef = db.collection('storage_blobs').doc(blobId).collection('chunks').doc(String(i).padStart(4, '0'));
+                    batch.set(chunkRef, { index: i, chunk });
+                }
+                await batch.commit();
+            }
+            console.log(`[STORAGE] Persisted blob ${blobId} (${buffer.length} bytes) to Firestore`);
         } catch (dbErr) {
             console.warn('[STORAGE] Could not persist blob to Firestore cache:', dbErr.message);
         }
     }
 
     const port = process.env.PORT || 8000;
-    const baseUrl = process.env.BACKEND_URL || `http://localhost:${port}`;
+    const baseUrl = process.env.BACKEND_URL ||
+                    process.env.RENDER_EXTERNAL_URL ||
+                    (process.env.NODE_ENV === 'production' ? 'https://swasthya-h7bt.onrender.com' : `http://localhost:${port}`);
     return `${baseUrl}/api/documents/raw/${blobId}/${encodeURIComponent(cleanFileName)}`;
 }
 
@@ -91,14 +119,25 @@ async function getFile(blobId) {
             const doc = await db.collection('storage_blobs').doc(blobId).get();
             if (doc.exists) {
                 const data = doc.data();
-                const buffer = Buffer.from(data.base64, 'base64');
-                const item = {
-                    buffer,
-                    mimetype: data.mimetype || 'application/octet-stream',
-                    fileName: data.fileName || 'file'
-                };
-                memoryBlobCache.set(blobId, item);
-                return item;
+                let base64 = data.base64;
+
+                // If chunked, fetch all chunks and reconstruct base64
+                if (!base64 && data.chunks_count) {
+                    const chunksSnap = await db.collection('storage_blobs').doc(blobId)
+                        .collection('chunks').orderBy('index').get();
+                    base64 = chunksSnap.docs.map(d => d.data().chunk).join('');
+                }
+
+                if (base64) {
+                    const buffer = Buffer.from(base64, 'base64');
+                    const item = {
+                        buffer,
+                        mimetype: data.mimetype || 'application/octet-stream',
+                        fileName: data.fileName || 'file'
+                    };
+                    memoryBlobCache.set(blobId, item);
+                    return item;
+                }
             }
         } catch (err) {
             console.warn('[STORAGE] Error fetching blob from Firestore:', err.message);

@@ -1,7 +1,7 @@
 const firestoreService = require('../services/firestoreService');
 const aiService = require('../services/aiService');
 const storageService = require('../services/storageService');
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID: uuidv4 } = require('crypto');
 
 exports.uploadReport = async (req, res) => {
     try {
@@ -114,12 +114,28 @@ exports.uploadReport = async (req, res) => {
 exports.getDocuments = async (req, res) => {
     try {
         const { patient_id } = req.params;
+        const userId = req.user?.id;
+        const role = req.user?.role;
+
         const docs = await firestoreService.getDocumentsByPatient(patient_id);
 
-        // Filter hidden documents
-        const visibleDocs = docs.filter(doc =>
+        let visibleDocs = docs.filter(doc =>
             doc.extracted_data?.hidden_for_patient !== 'true'
         );
+
+        if (role === 'doctor') {
+            visibleDocs = visibleDocs.filter(doc => {
+                const sharedWith = doc.shared_with || [];
+                const isCreator = doc.extracted_data?.doctor_id === userId;
+                return sharedWith.includes(userId) || isCreator;
+            });
+        } else if (role === 'patient' && String(patient_id) !== String(userId)) {
+            // Check family link
+            const link = await firestoreService.getFamilyLink(userId, patient_id);
+            if (!link || link.status !== 'active') {
+                return res.status(403).json({ error: "Unauthorized access to patient documents" });
+            }
+        }
 
         res.json(visibleDocs);
     } catch (err) {

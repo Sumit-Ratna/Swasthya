@@ -22,7 +22,7 @@ require('dotenv').config({ path: path.join(__dirname, '../../../.env') });
 // Also try backend-level .env
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID: uuidv4 } = require('crypto');
 const bcrypt = require('bcryptjs');
 
 // We need firebase-admin initialised before importing the service

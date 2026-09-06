@@ -1,7 +1,7 @@
 const firestoreService = require('../services/firestoreService');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID: uuidv4 } = require('crypto');
 require('dotenv').config();
 
 const SALT_ROUNDS = parseInt(process.env.BCRYPT_SALT_ROUNDS, 10) || 10;
@@ -142,7 +142,7 @@ exports.register = async (req, res) => {
         if (role === 'doctor') {
             userData.specialization = specialization || 'General Physician';
             userData.hospital_name = hospital_name || 'HealthNexus Clinic';
-            userData.doctor_qr_id = 'DOC-' + Math.random().toString(36).substr(2, 6).toUpperCase();
+            userData.doctor_qr_id = req.body.doctor_qr_id || ('DOC-' + Math.random().toString(36).substr(2, 6).toUpperCase());
         }
 
         const userId = uuidv4();

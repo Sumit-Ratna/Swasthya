@@ -1,0 +1,29 @@
+# Node
+node_modules/
+**/node_modules/
+
+# Environment
+.env
+**/.env
+
+# Build
+dist/
+build/
+**/dist/
+**/build/
+
+# Firebase/Secret Files
+service-account.json
+**/service-account.json
+
+# Uploads
+uploads/
+**/uploads/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+**/logs/

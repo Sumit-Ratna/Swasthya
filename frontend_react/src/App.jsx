@@ -32,6 +32,7 @@ import PatientHistory from './pages/PatientHistory';
 import PrescribeMedicine from './pages/PrescribeMedicine';
 import AddDiagnosis from './pages/AddDiagnosis';
 import DoctorQR from './pages/DoctorQR';
+import Scribe from './pages/Scribe';
 
 const MainApp = () => {
   const { user, loading } = useContext(AuthContext);
@@ -101,6 +102,7 @@ const MainApp = () => {
               <Route path="/doctor/prescribe" element={<PrescribeMedicine />} />
               <Route path="/doctor/diagnosis" element={<AddDiagnosis />} />
               <Route path="/doctor/qr" element={<DoctorQR />} />
+              <Route path="/doctor/scribe" element={<Scribe />} />
             </>
           )}
 

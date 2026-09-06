@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { motion } from 'framer-motion';
 import axios from 'axios';
-import { Users, Calendar, FileText, Activity, User, Pill, Stethoscope, QrCode } from 'lucide-react';
+import { Users, Calendar, FileText, Activity, User, Pill, Stethoscope, QrCode, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { API_URL } from '../config';
 
@@ -108,6 +108,13 @@ const DoctorDashboard = () => {
                 >
                     <Stethoscope size={18} style={{ marginRight: '8px' }} />
                     Add Diagnosis
+                </button>
+                <button
+                    onClick={() => navigate('/doctor/scribe')}
+                    style={{ background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)', color: 'white', border: 'none', padding: '12px', borderRadius: 'var(--radius-md)', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 2px 8px rgba(124, 58, 237, 0.25)' }}
+                >
+                    <Sparkles size={18} style={{ marginRight: '8px' }} />
+                    AI Scribe
                 </button>
                 <button
                     onClick={() => navigate('/doctor/qr')}

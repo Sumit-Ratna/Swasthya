@@ -29,6 +29,10 @@ try {
         };
     } else if (fs.existsSync(serviceAccountPath)) {
         serviceAccount = require(serviceAccountPath);
+    } else if (fs.existsSync('/etc/secrets/service-account.json')) {
+        serviceAccount = require('/etc/secrets/service-account.json');
+    } else if (process.env.SERVICE_ACCOUNT_PATH && fs.existsSync(process.env.SERVICE_ACCOUNT_PATH)) {
+        serviceAccount = require(process.env.SERVICE_ACCOUNT_PATH);
     }
 
     if (serviceAccount && !admin.apps.length) {

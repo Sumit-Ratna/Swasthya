@@ -311,6 +311,10 @@ exports.analyzeDocument = async (req, res) => {
             const sharedWith = document.shared_with || [];
             if (sharedWith.includes(userId)) canAccess = true;
             if (document.extracted_data && document.extracted_data.doctor_id == userId) canAccess = true;
+            if (!canAccess && document.patient_id) {
+                const link = await firestoreService.getDoctorPatientLink(userId, document.patient_id);
+                if (link) canAccess = true;
+            }
         }
 
         if (!canAccess) {

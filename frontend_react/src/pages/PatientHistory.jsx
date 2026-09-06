@@ -3,7 +3,7 @@ import { AuthContext } from '../context/AuthContext';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
-import { User, FileText, Calendar, Pill, Stethoscope, ArrowLeft, AlertCircle, Volume2, Trash2, Loader, CheckCircle, Upload, Edit2 } from 'lucide-react';
+import { User, FileText, Calendar, Pill, Stethoscope, ArrowLeft, AlertCircle, Volume2, Trash2, Loader, CheckCircle, Upload, Edit2, Sparkles, Eye, ExternalLink, Download, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { API_URL } from '../config';
 
 const PatientHistory = () => {
@@ -17,6 +17,9 @@ const PatientHistory = () => {
     const [uploading, setUploading] = useState(false);
     const [selectedFile, setSelectedFile] = useState(null);
     const [showEditProfileModal, setShowEditProfileModal] = useState(false);
+    const [analyzingDocId, setAnalyzingDocId] = useState(null);
+    const [expandedPreviewDocId, setExpandedPreviewDocId] = useState(null);
+    const [expandedAiDocs, setExpandedAiDocs] = useState({});
     const [editFormData, setEditFormData] = useState({
         allergies: '',
         chronic_diseases: '',
@@ -142,24 +145,34 @@ const PatientHistory = () => {
         }
     };
 
-    const handleAnalyze = async (docId) => {
-        if (!confirm("Run AI Analysis on this report again?")) return;
+    const toggleAiSummary = (docId) => {
+        setExpandedAiDocs(prev => ({
+            ...prev,
+            [docId]: !prev[docId]
+        }));
+    };
 
-        // Indicate loading somehow? We don't have per-item loading state yet.
-        // Let's use global loading for simplicity or just alert on start/end.
-        // Better: just alert start.
-        alert("Analysis started. Please wait...");
+    const togglePreview = (docId) => {
+        setExpandedPreviewDocId(prev => (prev === docId ? null : docId));
+    };
 
+    const handleAnalyze = async (docId, isReanalyze = false) => {
+        if (isReanalyze && !window.confirm("Run AI Analysis on this report again?")) return;
+
+        setAnalyzingDocId(docId);
         try {
             const token = localStorage.getItem('accessToken');
-            const res = await axios.post(`${API_URL}/api/documents/${docId}/analyze`, {}, {
+            await axios.post(`${API_URL}/api/documents/${docId}/analyze`, {}, {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            alert("Analysis Complete!");
-            fetchPatientHistory(); // Refresh to see data
+            // Automatically expand the AI summary for this document
+            setExpandedAiDocs(prev => ({ ...prev, [docId]: true }));
+            fetchPatientHistory();
         } catch (err) {
             console.error("Analysis error", err);
-            alert("Failed to analyze: " + (err.response?.data?.error || err.message));
+            alert("Failed to analyze report: " + (err.response?.data?.error || err.message));
+        } finally {
+            setAnalyzingDocId(null);
         }
     };
 
@@ -359,151 +372,442 @@ const PatientHistory = () => {
                             <p>No records available</p>
                         </div>
                     ) : (
-                        documents.map(doc => (
-                            <motion.div
-                                key={doc.id}
-                                className="card"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                style={{ marginBottom: '12px', padding: '16px' }}
-                            >
-                                <div style={{ display: 'flex', alignItems: 'center' }}>
-                                    <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: doc.type === 'prescription' ? '#34C759' : '#FF9500', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '12px' }}>
-                                        <FileText size={20} color="white" />
-                                    </div>
-                                    <div style={{ flex: 1 }}>
-                                        <div style={{ fontWeight: 600 }}>{doc.type.replace('_', ' ').toUpperCase()}</div>
-                                        <div style={{ fontSize: '12px', color: '#8E8E93' }}>
-                                            {new Date(doc.createdAt).toLocaleDateString()} <span style={{ color: '#ccc' }}>|</span> {new Date(doc.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </div>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                        {doc.file_url && (
-                                            <button
-                                                onClick={() => {
-                                                    const target = (doc.file_url?.startsWith('http') || doc.file_url?.startsWith('data:'))
-                                                        ? doc.file_url
-                                                        : `${API_URL}/${doc.file_url?.replace(/^\//, '')}`;
-                                                    window.open(target, '_blank');
-                                                }}
-                                                style={{
-                                                    padding: '6px 12px',
-                                                    borderRadius: '8px',
-                                                    background: '#F2F2F7',
-                                                    border: 'none',
-                                                    cursor: 'pointer',
-                                                    color: '#007AFF',
-                                                    fontWeight: 600,
-                                                    fontSize: '12px'
-                                                }}
-                                            >
-                                                View Original
-                                            </button>
-                                        )}
-                                        <button
-                                            onClick={() => handleDelete(doc.id)}
-                                            style={{
-                                                padding: '6px',
-                                                borderRadius: '8px',
-                                                background: '#FFE5E5',
-                                                border: 'none',
-                                                cursor: 'pointer',
-                                                color: '#FF3B30',
+                        documents.map(doc => {
+                            const isImage = doc.file_url && (
+                                doc.file_url.includes('.jpg') ||
+                                doc.file_url.includes('.jpeg') ||
+                                doc.file_url.includes('.png') ||
+                                doc.file_url.includes('.webp') ||
+                                doc.file_url.startsWith('data:image')
+                            );
+                            const isPdf = doc.file_url && (
+                                doc.file_url.includes('.pdf') ||
+                                doc.file_url.startsWith('data:application/pdf')
+                            );
+                            const fileTarget = doc.file_url
+                                ? ((doc.file_url.startsWith('http') || doc.file_url.startsWith('data:'))
+                                    ? doc.file_url
+                                    : `${API_URL}/${doc.file_url.replace(/^\//, '')}`)
+                                : null;
+
+                            const hasAiData = doc.extracted_data && (
+                                doc.extracted_data.summary_text ||
+                                doc.extracted_data.findings ||
+                                doc.extracted_data.abnormal_flags ||
+                                doc.extracted_data.diagnosis ||
+                                doc.extracted_data.symptoms ||
+                                (typeof doc.extracted_data === 'object' && Object.keys(doc.extracted_data).some(k => !['doctor_id', 'uploaded_by', 'doctor_name', 'hidden_for_patient'].includes(k)))
+                            );
+
+                            const isAiExpanded = !!expandedAiDocs[doc.id];
+                            const isPreviewOpen = expandedPreviewDocId === doc.id;
+                            const isAnalyzing = analyzingDocId === doc.id;
+
+                            return (
+                                <motion.div
+                                    key={doc.id}
+                                    className="card"
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    style={{
+                                        marginBottom: '16px',
+                                        padding: '20px',
+                                        borderRadius: '16px',
+                                        border: '1px solid #E5E5EA',
+                                        boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+                                    }}
+                                >
+                                    {/* Top Bar: Icon, Title, Badges, Date & Actions */}
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                                            <div style={{
+                                                width: '46px',
+                                                height: '46px',
+                                                borderRadius: '12px',
+                                                background: doc.type === 'prescription' ? '#34C759' : (doc.type === 'diagnosis_note' ? '#FF9500' : '#007AFF'),
                                                 display: 'flex',
                                                 alignItems: 'center',
-                                                justifyContent: 'center'
-                                            }}
-                                            title="Delete Record"
-                                        >
-                                            <Trash2 size={16} />
-                                        </button>
+                                                justifyContent: 'center',
+                                                color: 'white',
+                                                flexShrink: 0
+                                            }}>
+                                                <FileText size={24} />
+                                            </div>
+                                            <div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                                    <span style={{ fontWeight: 700, fontSize: '16px', color: '#1C1C1E' }}>
+                                                        {doc.type === 'lab_report' ? 'Lab Report' : (doc.type === 'prescription' ? 'Prescription' : 'Clinical Diagnosis Note')}
+                                                    </span>
+                                                    {doc.file_url && (
+                                                        <span style={{
+                                                            background: '#E8F5E9',
+                                                            color: '#2E7D32',
+                                                            fontSize: '11px',
+                                                            fontWeight: 700,
+                                                            padding: '3px 8px',
+                                                            borderRadius: '6px',
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px'
+                                                        }}>
+                                                            <CheckCircle size={12} /> Actual Report File
+                                                        </span>
+                                                    )}
+                                                    {hasAiData ? (
+                                                        <span style={{
+                                                            background: '#EDE7F6',
+                                                            color: '#673AB7',
+                                                            fontSize: '11px',
+                                                            fontWeight: 700,
+                                                            padding: '3px 8px',
+                                                            borderRadius: '6px',
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px'
+                                                        }}>
+                                                            <Sparkles size={12} /> AI Insights Available
+                                                        </span>
+                                                    ) : (
+                                                        doc.file_url && (
+                                                            <span style={{
+                                                                background: '#F2F2F7',
+                                                                color: '#8E8E93',
+                                                                fontSize: '11px',
+                                                                fontWeight: 600,
+                                                                padding: '3px 8px',
+                                                                borderRadius: '6px'
+                                                            }}>
+                                                                Not Analyzed
+                                                            </span>
+                                                        )
+                                                    )}
+                                                </div>
+                                                <div style={{ fontSize: '13px', color: '#8E8E93', marginTop: '4px' }}>
+                                                    Uploaded: {new Date(doc.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })} at {new Date(doc.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    {isPdf && ' • PDF Document'}
+                                                    {isImage && ' • Image Report'}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Action Buttons */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                            {/* Primary Button: View Actual Report */}
+                                            {fileTarget && (
+                                                <a
+                                                    href={fileTarget}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: '6px',
+                                                        background: '#007AFF',
+                                                        color: 'white',
+                                                        padding: '8px 14px',
+                                                        borderRadius: '10px',
+                                                        textDecoration: 'none',
+                                                        fontSize: '13px',
+                                                        fontWeight: 600,
+                                                        boxShadow: '0 2px 6px rgba(0,122,255,0.25)',
+                                                        cursor: 'pointer'
+                                                    }}
+                                                >
+                                                    <ExternalLink size={14} />
+                                                    View Actual Report
+                                                </a>
+                                            )}
+
+                                            {/* Preview Toggle Button */}
+                                            {fileTarget && (
+                                                <button
+                                                    onClick={() => togglePreview(doc.id)}
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: '6px',
+                                                        background: isPreviewOpen ? '#E5E5EA' : '#F2F2F7',
+                                                        color: '#1C1C1E',
+                                                        border: 'none',
+                                                        padding: '8px 14px',
+                                                        borderRadius: '10px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '13px',
+                                                        fontWeight: 600
+                                                    }}
+                                                    title="Preview document in page"
+                                                >
+                                                    <Eye size={14} />
+                                                    {isPreviewOpen ? 'Hide Preview' : 'Preview'}
+                                                </button>
+                                            )}
+
+                                            {/* AI Analysis Option */}
+                                            {fileTarget && (
+                                                hasAiData ? (
+                                                    <button
+                                                        onClick={() => toggleAiSummary(doc.id)}
+                                                        style={{
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            gap: '6px',
+                                                            background: isAiExpanded ? '#EDE7F6' : '#F8F5FE',
+                                                            color: '#7C3AED',
+                                                            border: '1px solid #D8B4FE',
+                                                            padding: '8px 14px',
+                                                            borderRadius: '10px',
+                                                            cursor: 'pointer',
+                                                            fontSize: '13px',
+                                                            fontWeight: 600
+                                                        }}
+                                                    >
+                                                        <Sparkles size={14} />
+                                                        {isAiExpanded ? 'Hide AI Summary' : 'View AI Summary'}
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => handleAnalyze(doc.id)}
+                                                        disabled={isAnalyzing}
+                                                        style={{
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            gap: '6px',
+                                                            background: 'linear-gradient(135deg, #7C3AED 0%, #9333EA 100%)',
+                                                            color: 'white',
+                                                            border: 'none',
+                                                            padding: '8px 14px',
+                                                            borderRadius: '10px',
+                                                            cursor: isAnalyzing ? 'wait' : 'pointer',
+                                                            fontSize: '13px',
+                                                            fontWeight: 600,
+                                                            boxShadow: '0 2px 6px rgba(124,58,237,0.25)',
+                                                            opacity: isAnalyzing ? 0.75 : 1
+                                                        }}
+                                                    >
+                                                        {isAnalyzing ? <Loader size={14} className="spin" /> : <Sparkles size={14} />}
+                                                        {isAnalyzing ? 'Analyzing with AI...' : 'Analyze with AI'}
+                                                    </button>
+                                                )
+                                            )}
+
+                                            {/* Delete */}
+                                            <button
+                                                onClick={() => handleDelete(doc.id)}
+                                                style={{
+                                                    padding: '8px',
+                                                    borderRadius: '10px',
+                                                    background: '#FFE5E5',
+                                                    border: 'none',
+                                                    cursor: 'pointer',
+                                                    color: '#FF3B30',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center'
+                                                }}
+                                                title="Delete or Remove Access"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
-                                {doc.extracted_data && (
-                                    <div style={{ marginTop: '12px', fontSize: '13px', background: '#F2F2F7', padding: '12px', borderRadius: '12px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                            <span style={{ fontWeight: 800, color: '#007AFF', fontSize: '11px', textTransform: 'uppercase' }}>Clinical Data</span>
-                                            <div style={{ display: 'flex', gap: '8px' }}>
-                                                {!doc.extracted_data && (
+
+                                    {/* Inline Actual Report Preview (PDF or Image) */}
+                                    {isPreviewOpen && fileTarget && (
+                                        <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            style={{
+                                                marginTop: '16px',
+                                                padding: '16px',
+                                                background: '#1C1C1E',
+                                                borderRadius: '12px',
+                                                border: '1px solid #3A3A3C',
+                                                color: 'white'
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 600, color: '#0A84FF' }}>
+                                                    <FileText size={16} />
+                                                    Actual Report Document Preview
+                                                </div>
+                                                <a
+                                                    href={fileTarget}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    style={{ color: '#0A84FF', fontSize: '12px', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                                >
+                                                    Open Full Screen <ExternalLink size={12} />
+                                                </a>
+                                            </div>
+
+                                            {isImage ? (
+                                                <div style={{ textAlign: 'center', background: '#000', borderRadius: '8px', padding: '10px', overflow: 'hidden' }}>
+                                                    <img
+                                                        src={fileTarget}
+                                                        alt="Report Document"
+                                                        style={{ maxWidth: '100%', maxHeight: '520px', borderRadius: '6px', objectFit: 'contain' }}
+                                                    />
+                                                </div>
+                                            ) : isPdf ? (
+                                                <div style={{ width: '100%', height: '520px', borderRadius: '8px', overflow: 'hidden' }}>
+                                                    <iframe
+                                                        src={fileTarget}
+                                                        title="Report Document PDF"
+                                                        style={{ width: '100%', height: '100%', border: 'none' }}
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <div style={{ padding: '24px', textAlign: 'center', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                                                    <p style={{ margin: '0 0 12px', fontSize: '14px' }}>Document available for viewing:</p>
+                                                    <a
+                                                        href={fileTarget}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        style={{ background: '#007AFF', color: 'white', padding: '8px 16px', borderRadius: '8px', textDecoration: 'none', fontWeight: 600, fontSize: '13px' }}
+                                                    >
+                                                        Open File
+                                                    </a>
+                                                </div>
+                                            )}
+                                        </motion.div>
+                                    )}
+
+                                    {/* Optional AI Summary Section (Toggleable by Doctor) */}
+                                    {hasAiData && isAiExpanded && (
+                                        <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            style={{
+                                                marginTop: '16px',
+                                                padding: '16px',
+                                                borderRadius: '12px',
+                                                background: '#FDFBFF',
+                                                border: '1px solid #E9D5FF',
+                                                boxShadow: '0 1px 4px rgba(124,58,237,0.06)'
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid #F3E8FF' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#7C3AED', fontWeight: 700, fontSize: '13px' }}>
+                                                    <Sparkles size={16} />
+                                                    AI Clinical Analysis & Findings
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <button
+                                                        onClick={() => handleAnalyze(doc.id, true)}
+                                                        disabled={isAnalyzing}
+                                                        style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px',
+                                                            background: 'none',
+                                                            border: '1px solid #D8B4FE',
+                                                            color: '#7C3AED',
+                                                            borderRadius: '6px',
+                                                            padding: '4px 10px',
+                                                            fontSize: '11px',
+                                                            fontWeight: 600,
+                                                            cursor: isAnalyzing ? 'wait' : 'pointer'
+                                                        }}
+                                                        title="Run analysis again"
+                                                    >
+                                                        <RefreshCw size={12} className={isAnalyzing ? 'spin' : ''} />
+                                                        Re-analyze
+                                                    </button>
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            handleAnalyze(doc.id);
+                                                            let text = "";
+                                                            if (doc.type === 'diagnosis_note') {
+                                                                text = `Diagnosis: ${doc.extracted_data.diagnosis}. Symptoms: ${doc.extracted_data.symptoms}. Plan: ${doc.extracted_data.treatment_plan}`;
+                                                            } else if (doc.extracted_data?.summary_text) {
+                                                                text = doc.extracted_data.summary_text;
+                                                            } else {
+                                                                text = JSON.stringify(doc.extracted_data).replace(/[{"},]/g, ' ');
+                                                            }
+                                                            const speech = new SpeechSynthesisUtterance("Clinical Summary: " + text);
+                                                            window.speechSynthesis.cancel();
+                                                            window.speechSynthesis.speak(speech);
                                                         }}
-                                                        style={{ background: '#34C759', border: 'none', borderRadius: '4px', cursor: 'pointer', color: 'white', fontSize: '10px', padding: '2px 8px', fontWeight: 600 }}
+                                                        style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px',
+                                                            background: '#E1F0FF',
+                                                            color: '#007AFF',
+                                                            border: 'none',
+                                                            borderRadius: '6px',
+                                                            padding: '4px 10px',
+                                                            fontSize: '11px',
+                                                            fontWeight: 600,
+                                                            cursor: 'pointer'
+                                                        }}
+                                                        title="Listen to summary"
                                                     >
-                                                        Analyze
+                                                        <Volume2 size={13} /> Listen
                                                     </button>
-                                                )}
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        window.speechSynthesis.cancel();
-                                                    }}
-                                                    style={{ background: 'none', border: '1px solid #FF2D55', borderRadius: '4px', cursor: 'pointer', color: '#FF2D55', fontSize: '10px', padding: '2px 6px' }}
-                                                    title="Stop Reading"
-                                                >
-                                                    Stop
-                                                </button>
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        let text = "";
-                                                        if (doc.type === 'diagnosis_note') {
-                                                            text = `Diagnosis: ${doc.extracted_data.diagnosis}. Symptoms: ${doc.extracted_data.symptoms}. Plan: ${doc.extracted_data.treatment_plan}`;
-                                                        } else if (doc.extracted_data?.summary_text) {
-                                                            text = doc.extracted_data.summary_text;
-                                                        } else {
-                                                            text = JSON.stringify(doc.extracted_data).replace(/[{"},]/g, ' ');
-                                                        }
-
-                                                        const speech = new SpeechSynthesisUtterance("Summary for " + doc.type.replace('_', ' ') + ". " + text);
-                                                        window.speechSynthesis.cancel();
-                                                        window.speechSynthesis.speak(speech);
-                                                    }}
-                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#007AFF' }}
-                                                    title="Read Aloud"
-                                                >
-                                                    <Volume2 size={16} />
-                                                </button>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            window.speechSynthesis.cancel();
+                                                        }}
+                                                        style={{
+                                                            background: 'none',
+                                                            border: '1px solid #FF3B30',
+                                                            color: '#FF3B30',
+                                                            borderRadius: '6px',
+                                                            padding: '4px 8px',
+                                                            fontSize: '11px',
+                                                            fontWeight: 600,
+                                                            cursor: 'pointer'
+                                                        }}
+                                                        title="Stop audio"
+                                                    >
+                                                        Stop
+                                                    </button>
+                                                </div>
                                             </div>
-                                        </div>
 
-                                        {/* Diagnosis Note Specific View */}
-                                        {doc.type === 'diagnosis_note' ? (
-                                            <div style={{ display: 'grid', gap: '8px' }}>
-                                                <div>
-                                                    <span style={{ fontWeight: 600, color: '#333' }}>Diagnosis: </span>
-                                                    <span>{doc.extracted_data.diagnosis}</span>
-                                                </div>
-                                                <div>
-                                                    <span style={{ fontWeight: 600, color: '#333' }}>Symptoms: </span>
-                                                    <span>{doc.extracted_data.symptoms}</span>
-                                                </div>
-                                                {doc.extracted_data.treatment_plan && (
-                                                    <div style={{ marginTop: '4px', padding: '8px', background: 'white', borderRadius: '6px', borderLeft: '3px solid #FF9500' }}>
-                                                        <div style={{ fontWeight: 600, fontSize: '11px', color: '#FF9500' }}>TREATMENT PLAN</div>
-                                                        {doc.extracted_data.treatment_plan}
+                                            {/* Clinical Content */}
+                                            {doc.type === 'diagnosis_note' ? (
+                                                <div style={{ display: 'grid', gap: '8px', fontSize: '13px' }}>
+                                                    <div>
+                                                        <span style={{ fontWeight: 600, color: '#333' }}>Diagnosis: </span>
+                                                        <span>{doc.extracted_data.diagnosis}</span>
                                                     </div>
-                                                )}
-                                            </div>
-                                        ) : (
-                                            <div style={{ whiteSpace: 'pre-wrap', maxHeight: '150px', overflowY: 'auto' }}>
-                                                {doc.extracted_data?.summary_text
-                                                    ? doc.extracted_data.summary_text
-                                                    : (typeof doc.extracted_data === 'string'
-                                                        ? doc.extracted_data
-                                                        : Object.entries(doc.extracted_data).map(([key, val]) => (
-                                                            <div key={key}><strong>{key}:</strong> {typeof val === 'object' ? JSON.stringify(val) : val}</div>
-                                                        ))
-                                                    )
-                                                }
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </motion.div>
-                        ))
+                                                    <div>
+                                                        <span style={{ fontWeight: 600, color: '#333' }}>Symptoms: </span>
+                                                        <span>{doc.extracted_data.symptoms}</span>
+                                                    </div>
+                                                    {doc.extracted_data.treatment_plan && (
+                                                        <div style={{ marginTop: '4px', padding: '8px 12px', background: '#FFF7ED', borderRadius: '8px', borderLeft: '3px solid #FF9500' }}>
+                                                            <div style={{ fontWeight: 700, fontSize: '11px', color: '#EA580C', marginBottom: '2px' }}>TREATMENT PLAN</div>
+                                                            {doc.extracted_data.treatment_plan}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div style={{ whiteSpace: 'pre-wrap', maxHeight: '200px', overflowY: 'auto', fontSize: '13px', lineHeight: '1.6', color: '#374151' }}>
+                                                    {doc.extracted_data?.summary_text
+                                                        ? doc.extracted_data.summary_text
+                                                        : (typeof doc.extracted_data === 'string'
+                                                            ? doc.extracted_data
+                                                            : Object.entries(doc.extracted_data)
+                                                                .filter(([k]) => !['doctor_id', 'uploaded_by', 'doctor_name', 'hidden_for_patient'].includes(k))
+                                                                .map(([key, val]) => (
+                                                                    <div key={key} style={{ marginBottom: '4px' }}>
+                                                                        <strong style={{ textTransform: 'capitalize', color: '#1F2937' }}>{key.replace(/_/g, ' ')}:</strong>{' '}
+                                                                        <span>{typeof val === 'object' ? JSON.stringify(val) : String(val)}</span>
+                                                                    </div>
+                                                                ))
+                                                        )
+                                                    }
+                                                </div>
+                                            )}
+                                        </motion.div>
+                                    )}
+                                </motion.div>
+                            );
+                        })
                     )}
                 </div>
             )}

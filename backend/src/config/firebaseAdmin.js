@@ -1,12 +1,4 @@
 const admin = require('firebase-admin');
-
-// [WARNING] WARNING: 
-// To verify tokens securely, you MUST provide a Service Account JSON file.
-// 1. Go to Firebase Console -> Project Settings -> Service Accounts
-// 2. Generate new private key -> Download JSON
-// 3. Save it as `service-account.json` in `backend/` folder (DO NOT COMMIT THIS FILE!)
-// 4. Update the `serviceAccountPath` below if needed.
-
 const path = require('path');
 const fs = require('fs');
 const serviceAccountPath = path.join(__dirname, '../../service-account.json');
@@ -15,12 +7,26 @@ try {
     let serviceAccount = null;
 
     if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-        try {
-            serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-        } catch {
-            const decoded = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, 'base64').toString('utf8');
-            serviceAccount = JSON.parse(decoded);
+        let raw = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
+        if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+            raw = raw.slice(1, -1).trim();
         }
+        try {
+            serviceAccount = JSON.parse(raw);
+        } catch {
+            try {
+                const decoded = Buffer.from(raw, 'base64').toString('utf8');
+                serviceAccount = JSON.parse(decoded);
+            } catch (b64Err) {
+                console.error("[ERROR] Failed to parse FIREBASE_SERVICE_ACCOUNT as JSON or Base64:", b64Err.message);
+            }
+        }
+    } else if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+        serviceAccount = {
+            projectId: process.env.FIREBASE_PROJECT_ID || 'medical-ab63c',
+            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+            privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+        };
     } else if (fs.existsSync(serviceAccountPath)) {
         serviceAccount = require(serviceAccountPath);
     }
@@ -33,7 +39,7 @@ try {
         });
         console.log("[FIREBASE] Admin SDK initialized successfully");
     } else if (!serviceAccount) {
-        console.warn("[WARNING] service-account.json not found at:", serviceAccountPath);
+        console.warn("[WARNING] service-account.json not found and FIREBASE_SERVICE_ACCOUNT env var not provided/invalid");
     }
 } catch (error) {
     console.error("[ERROR] Firebase Admin initialization failed:", error.message);

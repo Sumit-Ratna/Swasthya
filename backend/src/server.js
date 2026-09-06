@@ -50,6 +50,15 @@ app.get('/', (req, res) => {
     res.send('HealthNexus API is Running with Firebase');
 });
 
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        firestore: !!db,
+        firebaseApps: admin.apps.length,
+        timestamp: new Date().toISOString()
+    });
+});
+
 // Start Server with Firestore Check
 if (require.main === module) {
     if (db) {
